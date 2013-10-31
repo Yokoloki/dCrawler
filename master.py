@@ -2,17 +2,16 @@
 import rpyc
 import json
 import MySQLdb
+import logging, logging.config, logging.handlers
 from operator import itemgetter
 from Queue import Queue, Empty
-from time import time, strftime, localtime
+from time import time
 
 MAXNUM_TOCRAWL_EACHROUND = 1000
-FORMAT = "%Y-%m-%d %X"
 class Scheduler:
 	def __init__(self):
 		#Import weibo accounts from json
-		#[{'user':'xxx', 'psw':'xxx'}, ...]
-		print 'Initializing...'
+		#[{'user':'xxx', 'psw':'xxx'}, ...]'
 		acFile = file("accounts.json")
 		self.accounts = json.load(acFile)
 		acFile.close()
@@ -20,17 +19,19 @@ class Scheduler:
 		confFile = file("config.json")
 		self.config = json.load(confFile)
 		confFile.close()
-		print 'Setting up parameters...'
+
+		logging.config.dictConfig(self.config['log'])
+		self.logger = logging.getLogger()
 		#Init variables
 		self.todoQueue = Queue()
 		self.doneQueue = Queue()
 		self.crawledSet = set()
 		self.numCrawled = 0
 		#Retrive info of last execution from DB
-		print 'Retrieving information from database...'
+		self.logger.info('Retrieving information from database...')
 		self.retrieveFromDB()
 		#Init workers
-		print 'Connecting with remote servers...'
+		self.logger.info('Connecting with remote servers...')
 		connList = []
 		threadList = []
 		crawlerList = []
@@ -51,7 +52,7 @@ class Scheduler:
 			thread.stop()
 		for conn in connList:
 			conn.close()
-		print "%d user data are crawled in this execution" % self.numCrawled
+		self.logger.info("%d user data are crawled in this execution" % self.numCrawled)
 		return
 
 	def retrieveFromDB(self):
@@ -91,7 +92,6 @@ class Scheduler:
 			newJob = None
 		return newJob
 
-
 	def work(self):
 		canceled = False
 		#setupWorkersNodes & let them block in todoQueue.get()
@@ -109,6 +109,7 @@ class Scheduler:
 			#Only choose those more valuable user if more than 1k uid to add
 			for i in xrange(min(MAXNUM_TOCRAWL_EACHROUND, len(sortedList))):
 				self.todoQueue.put(sortedList[i][0])
+			self.logger.info("Uids to crawl: %r" % sortedList[:min(MAXNUM_TOCRAWL_EACHROUND, len(sortedList))])
 			#Wait until this round of jobs done
 			sTime = time()
 			try:
@@ -117,10 +118,10 @@ class Scheduler:
 				canceled = True
 			eTime = time()
 			self.numCrawled += self.doneQueue.qsize()
-			print "%s: crawl %d users in %fs, %f/s" % (strftime(FORMAT, localtime()),
+			self.logger.info("%d users crawled in %fs, %f/s" % (
 				min(MAXNUM_TOCRAWL_EACHROUND, len(sortedList)), eTime-sTime,
-				min(MAXNUM_TOCRAWL_EACHROUND, len(sortedList))/(eTime-sTime))
-			print "%s: %d users are done in total\n" % (strftime(FORMAT, localtime()), self.numCrawled)
+				min(MAXNUM_TOCRAWL_EACHROUND, len(sortedList))/(eTime-sTime)))
+			self.logger.info("%d users are done in total" % self.numCrawled)
 		self.summary()
 
 	def summary(self):

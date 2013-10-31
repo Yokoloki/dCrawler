@@ -2,22 +2,21 @@
 import urllib2
 import urllib
 import cookielib
-import sys
+import logging
 import datetime
 import lxml.html as HTML
 from lxml.etree import XMLSyntaxError
 from time import sleep
-reload(sys)
-sys.setdefaultencoding("utf-8")
+
 class Fetcher(object):
     def __init__(self):
+        self.logger = logging.getLogger('Fetcher')
         self.cj = cookielib.LWPCookieJar()
         self.cookie_processor = urllib2.HTTPCookieProcessor(self.cj)
         self.opener = urllib2.build_opener(self.cookie_processor, urllib2.HTTPHandler)
-        
-
         #Mozilla/5.0 (Linux; Android 4.0.4; Galaxy Nexus Build/IMM76B) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.133 Mobile Safari/535.19
-        self.headers = {'User-Agent':'Mozilla/5.0 (iPhone; U; CPU like Mac OS X; en) AppleWebKit/420+ (KHTML, like Gecko) Version/3.0 Mobile/1A543 Safari/419.3',
+        #Mozilla/5.0 (iPhone; U; CPU like Mac OS X; en) AppleWebKit/420+ (KHTML, like Gecko) Version/3.0 Mobile/1A543 Safari/419.3
+        self.headers = {'User-Agent':'Mozilla/5.0 (Linux; Android 4.0.4; Galaxy Nexus Build/IMM76B) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.133 Mobile Safari/535.19',
                         'Referer':'','Content-Type':'application/x-www-form-urlencoded'}
 
      
@@ -32,7 +31,7 @@ class Fetcher(object):
                 vk = HTML.fromstring(login_page).xpath("//input[@name='vk']/@value")[0]
                 return rand, passwd, vk
             except:
-                'so try again in 0.2s'
+                self.logger.error('get_rand error when login, try again in 0.2s')
                 sleep(0.2)
      
     def login(self, username, pwd):
@@ -59,7 +58,6 @@ class Fetcher(object):
         req = urllib2.Request(link, headers=self.headers)
         response = self.opener.open(req)
 
-        #print '%s login success!'%self.username
     def logout(self):
         url = 'http://3g.sina.com.cn/prog/wapsite/sso/loginout.php?backURL=http%3A%2F%2Fweibo.cn%2Fpub%2F%3Fvt%3D4&backTitle=%D0%C2%C0%CB%CE%A2%B2%A9&vt=4'
         req = urllib2.Request(url, headers = self.headers)
@@ -77,7 +75,7 @@ class Fetcher(object):
                 response = self.opener.open(req)
                 return response.read()
             except:
-                print 'try again in 0.2s'
+                self.logger.error('fetch %s error, try again in 0.2s' % url)
                 sleep(0.2)
 
 class accountLimitedException(Exception):

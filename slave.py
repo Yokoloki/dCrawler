@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import rpyc
 import json
+import logging, logging.config, logging.handlers
 import MySQLdb
 from Queue import Queue
 from threading import Thread
@@ -10,25 +11,29 @@ from time import sleep
 
 from subworker import subworkerProcessing
 
-
-NUM_THREAD = 1
+NUM_THREAD = 5
 class CrawlerService(rpyc.Service):
 	class exposed_Crawler(object):
 		def __init__(self, serverID, accountList, fetchNewJobCB):
-			#Import configs(DB)
+			#Import configs
 			confFile = file("config.json")
 			config = json.load(confFile)
 			confFile.close()
-
+			#Init variables
+			NUM_THREAD = config['threadNum']
 			self.id = serverID
 			self.accountList = accountList
 			self.callback = fetchNewJobCB
-
 			self.todoQueue = Queue()
 			self.resultQueue = Queue()
 			#Init DBpool
 			dbconfig = config['db']
 			self.persistDB = PersistentDB(MySQLdb, host=dbconfig['host'], user=dbconfig['user'], passwd=dbconfig['passwd'], db=dbconfig['name'], charset='utf8')
+			#Init Logger
+			logconfig = config['log']
+			logging.config.dictConfig(logconfig)
+			self.logger = logging.getLogger("main")
+			#Start working thread
 			self.thread = Thread(target = self.work)
 			self.thread.start()
 
@@ -44,7 +49,7 @@ class CrawlerService(rpyc.Service):
 			#Init threads for work
 			for _ in xrange(NUM_THREAD):
 				assignedAccounts =  map(lambda x: self.accountList.pop(), xrange(numAcPThread))
-				thread = Thread(target = subworkerProcessing, args=(self.persistDB, self.todoQueue, self.resultQueue, assignedAccounts, ))
+				thread = Thread(target = subworkerProcessing, args=(_+1, self.persistDB, self.todoQueue, self.resultQueue, assignedAccounts, ))
 				thread.daemon = True
 				thread.start()
 			#Start the working loop
@@ -52,32 +57,36 @@ class CrawlerService(rpyc.Service):
 				#CB & Fetch Jobs
 				job = self.callback(self.id, job, frList)
 				if job == None:
-					print "Jobs are currently unavailable, try again in 1s"
-					#sleep(1)
+					self.logger.info("Jobs are currently unavailable, try again in 1s")
+					sleep(1)
 					continue
 				frList = self.crawl(job)
 				#Update DB when finish
 				dbCur.execute(SQL % job)
 				dbConn.commit()
-				#return
 
 		def crawl(self, uid):
 			#frDict: nickName->uid
 			#staticsDict: uid->calledTimes
+			self.logger.info('%d - crawlFrList' % uid)
 			frDict = self.crawlFrList(uid)
+			self.logger.info('%d - crawlContent' % uid)
 			[midListWithPraise, midListWithComment, unresolvedATDict, staticsDict] = self.crawlContent(uid, frDict)
 			#Resolve @Names, update the staticsDict, and return the name->uid dict
+			self.logger.info('%d - resolveWeiboNames' % uid)
 			nameDict = self.resolveWeiboNames(unresolvedATDict, staticsDict)
+			self.logger.info('%d - crawlPraise' % uid)
 			nameDict = self.crawlPraise(midListWithPraise, nameDict)
+			self.logger.info('%d - crawlComment' % uid)
 			unresolvedDict = self.crawlComment(midListWithComment, frDict, nameDict, staticsDict)
 			#Resolve names appears in comments, update the staticsDict and return the name->uid dict
+			self.logger.info('%d - resolveCommentNames' % uid)
 			self.resolveCommentNames(unresolvedDict, staticsDict)
 			#frList = self.getPotentialFrs(frDict, nameDict, unresolvedATDict, nameDict2, unresolvedDict)
 			#return frList
 			return frDict.values()
 
 		def crawlFrList(self, uid):
-			print 'crawlFrList'
 			fanListJob = ['fanList', uid, 1]
 			followListJob = ['followList', uid, 1]
 			self.todoQueue.put(fanListJob)
@@ -99,7 +108,6 @@ class CrawlerService(rpyc.Service):
 			return frDict
 
 		def crawlContent(self, uid, frDict):
-			print 'crawlContent'
 			self.todoQueue.put(['content', uid, 1, frDict])
 			self.todoQueue.join()
 
@@ -126,7 +134,6 @@ class CrawlerService(rpyc.Service):
 			return [midListWithPraise, midListWithComment, unresolvedATDict, staticsDict]
 
 		def resolveWeiboNames(self, unresolvedATDict, staticsDict):
-			print 'resolveWeiboNames'
 			for name, mids in unresolvedATDict.iteritems():
 				self.todoQueue.put(['resolveWeibo', name, mids])
 			self.todoQueue.join()
@@ -144,7 +151,6 @@ class CrawlerService(rpyc.Service):
 			return nameDict
 
 		def crawlPraise(self, midList, nameDict):
-			print 'crawlPraise'
 			for mid in midList:
 				self.todoQueue.put(['praise', mid, 1])
 			self.todoQueue.join()
@@ -156,7 +162,6 @@ class CrawlerService(rpyc.Service):
 			return nameDict
 
 		def crawlComment(self, midList, frDict, nameDict, staticsDict):
-			print 'crawlComment'
 			for mid in midList:
 				self.todoQueue.put(['comment', mid, 1, frDict, nameDict])
 			self.todoQueue.join()
@@ -179,7 +184,6 @@ class CrawlerService(rpyc.Service):
 			return unresolvedDict
 
 		def resolveCommentNames(self, unresolvedDict, staticsDict):
-			print 'resolveCommentNames'
 			for name, lists in unresolvedDict.iteritems():
 				self.todoQueue.put(['resolveComment', name, lists])
 			self.todoQueue.join()

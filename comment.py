@@ -8,8 +8,6 @@ def commentProcessing(mid, page, frDict, nameDict, fetcher, dbConn, dbCur):
 	content = fetcher.fetch(url)
 	soup = BeautifulSoup(content)
 	if soup.find('div', attrs={"class": "tip"}) and soup.find('div', attrs={"class": "tip"}).get_text().find('首页') != -1:
-		print soup.find('div', attrs={"class": "tip"})
-		print url
 		raise accountLimitedException
 	if page == 1:
 		pInfo = soup.find(attrs={"class": "pa", "id": "pagelist"})

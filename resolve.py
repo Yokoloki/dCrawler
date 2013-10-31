@@ -7,8 +7,6 @@ def nameResolving(name, fetcher):
 	content = fetcher.fetch(url)
 	soup = BeautifulSoup(content)
 	if soup.find('div', attrs={"class": "tip"}) and soup.find('div', attrs={"class": "tip"}).get_text().find('首页') != -1:
-		print soup.find('div', attrs={"class": "tip"})
-		print url
 		raise accountLimitedException
 	result = soup.find('div', attrs={'class':'tip2'})
 	if result:

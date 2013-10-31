@@ -7,8 +7,6 @@ def followListProcessing(uid, page, fetcher, dbConn, dbCur):
 	html = fetcher.fetch(url)
 	soup = BeautifulSoup(html)
 	if soup.find('div', attrs={"class": "tip"}) and soup.find('div', attrs={"class": "tip"}).get_text().find('首页') != -1:
-		print soup.find('div', attrs={"class": "tip"})
-		print url
 		raise accountLimitedException
 	if page == 1:
 		pageInfo = soup.find(attrs={"class":"pa","id":"pagelist"})
