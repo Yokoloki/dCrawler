@@ -12,6 +12,7 @@ from time import sleep
 from subworker import subworkerProcessing
 
 NUM_THREAD = 5
+MAX_FRLIST_NUM = 100
 class CrawlerService(rpyc.Service):
 	class exposed_Crawler(object):
 		def __init__(self, serverID, accountList, fetchNewJobCB):
@@ -82,9 +83,8 @@ class CrawlerService(rpyc.Service):
 			#Resolve names appears in comments, update the staticsDict and return the name->uid dict
 			self.logger.info('%d - resolveCommentNames' % uid)
 			self.resolveCommentNames(unresolvedDict, staticsDict)
-			#frList = self.getPotentialFrs(frDict, nameDict, unresolvedATDict, nameDict2, unresolvedDict)
-			#return frList
-			return frDict.values()
+			frList = self.getPotentialFrs(staticsDict)
+			return frList
 
 		def crawlFrList(self, uid):
 			fanListJob = ['fanList', uid, 1]
@@ -176,11 +176,11 @@ class CrawlerService(rpyc.Service):
 					else:
 						unresolvedDict[name] = lists
 				tStaticsDict = result[2]
-				for name, times in tStaticsDict.iteritems():
+				for uid, times in tStaticsDict.iteritems():
 					if name in staticsDict:
-						staticsDict[name] += times
+						staticsDict[uid] += times
 					else:
-						staticsDict[name] = times
+						staticsDict[uid] = times
 			return unresolvedDict
 
 		def resolveCommentNames(self, unresolvedDict, staticsDict):
@@ -200,6 +200,10 @@ class CrawlerService(rpyc.Service):
 					staticsDict[uid] = appTimes
 			return nameDict
 
+		def getPotentialFrs(self, staticsDict):
+			sortedList = sorted(staticsDict.iteritem(), key=itemgetter(1), reverse=True)
+			frList = map(lambda x: x[0], sortedList[: min(len(sortedList), MAX_FRLIST_NUM)])
+			return frList
 
 #if __name__ =="__main__":
 	#s = ThreadedServer(CrawlerService, port=18000, auto_register="localhost")
