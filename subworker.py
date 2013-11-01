@@ -13,10 +13,10 @@ from comment import commentProcessing
 from resolve import weiboATResolving, commentResolving
 
 MAX_WEIBO_PAGE = 20
-MAX_COMMENT_PAGE = 10
-MAX_PRAISE_PAGE = 10
-SWITCH_ACCOUNT_INTERVAL = 800
-RATE_LIMIT = 0.8
+MAX_COMMENT_PAGE = 5
+MAX_PRAISE_PAGE = 5
+SWITCH_ACCOUNT_INTERVAL = 200
+TIME_LIMIT_PER_REQ = 0.8
 SLOT_SIZE = 10
 def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts):
 	dbConn = persistDB.connection()
@@ -26,7 +26,7 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 	account = accountQueue.get()
 	logger = logging.getLogger("Thread%d" % tid)
 	fetcher = Fetcher()
-	recSpendTime = [0]*SLOT_SIZE
+	recSpendTime = [TIME_LIMIT_PER_REQ]*SLOT_SIZE
 	timeIndex = 0
 	while True:
 		try:
@@ -46,7 +46,7 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				accountQueue.put(account)
 				account = accountQueue.get()
 				fetcher = Fetcher()
-				recSpendTime = [0]*SLOT_SIZE
+				recSpendTime = [TIME_LIMIT_PER_REQ]*SLOT_SIZE
 				timeIndex = 0
 				while True:
 					try:
@@ -59,7 +59,7 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 						sleep(1)
 			todo = todoQueue.get()
 			stTime = time()
-			logger.debug("%r %r" % (account['user'], todo))
+			logger.debug("%r %r" % (account['user'], todo[:3]))
 			cmd = todo[0]
 			if cmd == "followList":
 				uid = todo[1]
@@ -132,18 +132,17 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				resultQueue.put([cmd, name, uid, appTimes])
 			#Rate Limit
 			recSpendTime[timeIndex] = time() - stTime
-			avgRate = sum(recSpendTime)/SLOT_SIZE
-			if avgRate > 0.8:
-				logger.info("Limiting rate for accout %s, dalay for %ds" % (account['user'], (2*(RATE_LIMIT-avgRate))))
-				sleep(2*(RATE_LIMIT-avgRate))
-				recSpendTime[timeIndex] += 2*(RATE_LIMIT-avgRate)
+			avgTime = sum(recSpendTime)/SLOT_SIZE
+			if avgTime < TIME_LIMIT_PER_REQ:
+				logger.info("Limiting rate for accout %s, delay for %.2fs" % (account['user'], (2*(TIME_LIMIT_PER_REQ-avgTime))))
+				sleep(2*(TIME_LIMIT_PER_REQ-avgTime))
+				recSpendTime[timeIndex] += 2*(TIME_LIMIT_PER_REQ-avgTime)
 			timeIndex = (timeIndex+1)%SLOT_SIZE
 
 		except accountLimitedException:
 			todoQueue.put(todo)
-			#force switch account
 			switchAccountTimer = -1
-			logger.error("AccountLimited, sleep 300s")
+			logger.error("Account %s Limited, sleep 300s" % account['user'])
 			sleep(300)
 
 		except Exception, e:

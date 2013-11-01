@@ -23,8 +23,8 @@ def nameResolving(name, fetcher, dbConn, dbCur):
 		else:
 			lIndex +=1
 		uid = int(url[lIndex : rIndex])
-		imgUrl = soup.find('div', attrs={'class': 'u'}).find('img')['src']
-		SQL = "INSERT IGNORE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%d, %s, %s)" % (uid, name, imgUrl)
+		imgUrl = result.previous_sibling.find('img')['src']
+		SQL = "INSERT IGNORE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%d, \'%s\', \'%s\')" % (uid, name, imgUrl)
 		dbCur.execute(SQL)
 		dbConn.commit()
 		return uid

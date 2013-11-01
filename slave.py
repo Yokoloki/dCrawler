@@ -5,6 +5,7 @@ import logging, logging.config, logging.handlers
 import MySQLdb
 from Queue import Queue
 from threading import Thread
+from operator import itemgetter
 from rpyc.utils.server import ThreadedServer
 from rpyc.utils.registry import TCPRegistryClient
 from DBUtils.PersistentDB import PersistentDB
@@ -12,7 +13,7 @@ from time import sleep
 
 from subworker import subworkerProcessing
 
-NUM_THREAD = 5
+NUM_THREAD = 2
 MAX_FRLIST_NUM = 100
 class CrawlerService(rpyc.Service):
 	class exposed_Crawler(object):
@@ -178,7 +179,7 @@ class CrawlerService(rpyc.Service):
 						unresolvedDict[name] = lists
 				tStaticsDict = result[2]
 				for uid, times in tStaticsDict.iteritems():
-					if name in staticsDict:
+					if uid in staticsDict:
 						staticsDict[uid] += times
 					else:
 						staticsDict[uid] = times
@@ -202,10 +203,12 @@ class CrawlerService(rpyc.Service):
 			return nameDict
 
 		def getPotentialFrs(self, staticsDict):
-			sortedList = sorted(staticsDict.iteritem(), key=itemgetter(1), reverse=True)
+			if staticsDict.get(-1):
+				staticsDict.pop(-1)
+			sortedList = sorted(staticsDict.iteritems(), key=itemgetter(1), reverse=True)
 			frList = map(lambda x: x[0], sortedList[: min(len(sortedList), MAX_FRLIST_NUM)])
 			return frList
 
-if __name__ =="__main__":
-	s = ThreadedServer(CrawlerService, port=18000, registrar=TCPRegistryClient("172.18.216.161"), logger = logging.getLogger())
-	s.start()
+#if __name__ =="__main__":
+#	s = ThreadedServer(CrawlerService, port=18000, registrar=TCPRegistryClient("172.18.216.161"), logger = logging.getLogger())
+#	s.start()
