@@ -19,7 +19,6 @@ class Fetcher(object):
         self.headers = {'User-Agent':'Mozilla/5.0 (Linux; Android 4.0.4; Galaxy Nexus Build/IMM76B) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.133 Mobile Safari/535.19',
                         'Referer':'','Content-Type':'application/x-www-form-urlencoded'}
 
-     
     def get_rand(self, url):
         while True:
             try:
@@ -53,6 +52,10 @@ class Fetcher(object):
         req = urllib2.Request(url, data, self.headers)
         response = self.opener.open(req)
         page = response.read()
+        msgErr = HTML.fromstring(page).xpath("//div[contains(@class, 'msgErr')]")
+        if msgErr != []:
+            raise accountBannedException
+
         link = HTML.fromstring(page).xpath("//a/@href")[0]
         if not link.startswith('http://'): link = 'http://weibo.cn/%s' % link
         req = urllib2.Request(link, headers=self.headers)
@@ -79,4 +82,6 @@ class Fetcher(object):
                 sleep(0.2)
 
 class accountLimitedException(Exception):
+    pass
+class accountBannedException(Exception):
     pass

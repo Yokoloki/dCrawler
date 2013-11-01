@@ -6,6 +6,7 @@ import MySQLdb
 from Queue import Queue
 from threading import Thread
 from rpyc.utils.server import ThreadedServer
+from rpyc.utils.registry import TCPRegistryClient
 from DBUtils.PersistentDB import PersistentDB
 from time import sleep
 
@@ -205,6 +206,6 @@ class CrawlerService(rpyc.Service):
 			frList = map(lambda x: x[0], sortedList[: min(len(sortedList), MAX_FRLIST_NUM)])
 			return frList
 
-#if __name__ =="__main__":
-	#s = ThreadedServer(CrawlerService, port=18000, auto_register="localhost")
-	#s.start()
+if __name__ =="__main__":
+	s = ThreadedServer(CrawlerService, port=18000, registrar=TCPRegistryClient("172.18.216.161"), logger = logging.getLogger())
+	s.start()

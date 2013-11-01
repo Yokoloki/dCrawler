@@ -4,7 +4,7 @@ from time import sleep, time
 from Queue import Queue
 from DBUtils.PersistentDB import PersistentDB
 
-from weiboCN import Fetcher, accountLimitedException
+from weiboCN import Fetcher, accountLimitedException, accountBannedException
 from followList import followListProcessing
 from fanList import fanListProcessing
 from content import contentProcessing
@@ -13,7 +13,11 @@ from comment import commentProcessing
 from resolve import weiboATResolving, commentResolving
 
 MAX_WEIBO_PAGE = 20
+MAX_COMMENT_PAGE = 10
+MAX_PRAISE_PAGE = 10
 SWITCH_ACCOUNT_INTERVAL = 800
+RATE_LIMIT = 0.8
+SLOT_SIZE = 10
 def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts):
 	dbConn = persistDB.connection()
 	dbCur = dbConn.cursor()
@@ -22,17 +26,39 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 	account = accountQueue.get()
 	logger = logging.getLogger("Thread%d" % tid)
 	fetcher = Fetcher()
-	fetcher.login(account['user'], account['pwd'])
-	timer = 0
+	recSpendTime = [0]*SLOT_SIZE
+	timeIndex = 0
 	while True:
 		try:
-			timer +=1
-			if timer%SWITCH_ACCOUNT_INTERVAL == 0:
+			fetcher.login(account['user'], account['pwd'])
+			break
+		except accountBannedException:
+			logger.error("account: %s banned....try to use other accounts" % account['user'])
+			accountQueue.put(account)
+			account = accountQueue.get()
+			sleep(1)
+	switchAccountTimer = 0
+	while True:
+		try:
+			switchAccountTimer +=1
+			if switchAccountTimer%SWITCH_ACCOUNT_INTERVAL == 0:
+				switchAccountTimer = 0
 				accountQueue.put(account)
 				account = accountQueue.get()
 				fetcher = Fetcher()
-				fetcher.login(account['user'], account['pwd'])
+				recSpendTime = [0]*SLOT_SIZE
+				timeIndex = 0
+				while True:
+					try:
+						fetcher.login(account['user'], account['pwd'])
+						break
+					except accountBannedException:
+						logger.error("account: %s banned....try to use other accounts" % account['user'])
+						accountQueue.put(account)
+						account = accountQueue.get()
+						sleep(1)
 			todo = todoQueue.get()
+			stTime = time()
 			logger.debug("%r %r" % (account['user'], todo))
 			cmd = todo[0]
 			if cmd == "followList":
@@ -80,7 +106,7 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				page = todo[2]
 				if page == 1:
 					[pageCount, nameDict] = praiseProcessing(mid, page, fetcher, dbConn, dbCur)
-					for p in xrange(2, pageCount+1):
+					for p in xrange(2, min(pageCount, MAX_PRAISE_PAGE)+1):
 						todoQueue.put([cmd, mid, p])
 				else:
 					nameDict = praiseProcessing(mid, page, fetcher, dbConn, dbCur)
@@ -93,7 +119,7 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				nameDict = todo[4]
 				if page == 1:
 					[unresolvedDict, staticsDict, pageCount] = commentProcessing(mid, page, frDict, nameDict, fetcher, dbConn, dbCur)
-					for p in xrange(2, pageCount+1):
+					for p in xrange(2, min(pageCount, MAX_COMMENT_PAGE)+1):
 						todoQueue.put([cmd, mid, p, frDict, nameDict])
 				else:
 					[unresolvedDict, staticsDict] = commentProcessing(mid, page, frDict, nameDict, fetcher, dbConn, dbCur)
@@ -104,11 +130,19 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				lists = todo[2]
 				[uid, appTimes] = commentResolving(name, lists, fetcher, dbConn, dbCur)
 				resultQueue.put([cmd, name, uid, appTimes])
+			#Rate Limit
+			recSpendTime[timeIndex] = time() - stTime
+			avgRate = sum(recSpendTime)/SLOT_SIZE
+			if avgRate > 0.8:
+				logger.info("Limiting rate for accout %s, dalay for %ds" % (account['user'], (2*(RATE_LIMIT-avgRate))))
+				sleep(2*(RATE_LIMIT-avgRate))
+				recSpendTime[timeIndex] += 2*(RATE_LIMIT-avgRate)
+			timeIndex = (timeIndex+1)%SLOT_SIZE
 
 		except accountLimitedException:
 			todoQueue.put(todo)
 			#force switch account
-			timer = -1
+			switchAccountTimer = -1
 			logger.error("AccountLimited, sleep 300s")
 			sleep(300)
 

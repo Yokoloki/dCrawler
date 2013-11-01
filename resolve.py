@@ -2,7 +2,12 @@
 from bs4 import BeautifulSoup
 from weiboCN import accountLimitedException
 
-def nameResolving(name, fetcher):
+def nameResolving(name, fetcher, dbConn, dbCur):
+	SQL = "SELECT `uid` from `userInfo` WHERE `name`=\'%s\'" % name
+	len = dbCur.execute(SQL)
+	if len > 0:
+		uid = dbCur.fetchone()
+		return uid[0]
 	url = 'http://weibo.cn/n/%s' % name
 	content = fetcher.fetch(url)
 	soup = BeautifulSoup(content)
@@ -17,12 +22,17 @@ def nameResolving(name, fetcher):
 			lIndex = 0
 		else:
 			lIndex +=1
-		return int(url[lIndex : rIndex])
+		uid = int(url[lIndex : rIndex])
+		imgUrl = soup.find('div', attrs={'class': 'u'}).find('img')['src']
+		SQL = "INSERT IGNORE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%d, %s, %s)" % (uid, name, imgUrl)
+		dbCur.execute(SQL)
+		dbConn.commit()
+		return uid
 	else:
 		return None
 
 def weiboATResolving(name, relatedMids, fetcher, dbConn, dbCur):
-	uid = nameResolving(name, fetcher)
+	uid = nameResolving(name, fetcher, dbConn, dbCur)
 	if uid:
 		dbWeiboATList = []
 		for mid in relatedMids: dbWeiboATList.append((mid, uid))
@@ -34,7 +44,7 @@ def weiboATResolving(name, relatedMids, fetcher, dbConn, dbCur):
 		return [-1, 0]
 
 def commentResolving(name, lists, fetcher, dbConn, dbCur):
-	uid = nameResolving(name, fetcher)
+	uid = nameResolving(name, fetcher, dbConn, dbCur)
 	if uid:
 		dbCommentingList = []
 		dbCommentReplyList = []
