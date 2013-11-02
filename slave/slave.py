@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import sys
 import rpyc
 import json
 import logging, logging.config, logging.handlers
@@ -10,22 +11,24 @@ from rpyc.utils.server import ThreadedServer
 from rpyc.utils.registry import TCPRegistryClient
 from DBUtils.PersistentDB import PersistentDB
 from time import sleep
-
 from subworker import subworkerProcessing
+from copy import deepcopy
 
-NUM_THREAD = 2
+reload(sys)
+sys.setdefaultencoding("utf-8")
+
 MAX_FRLIST_NUM = 100
 class CrawlerService(rpyc.Service):
 	class exposed_Crawler(object):
-		def __init__(self, serverID, accountList, fetchNewJobCB):
+		def __init__(self, serverID, threadCount, accountList, fetchNewJobCB):
 			#Import configs
-			confFile = file("config.json")
+			confFile = file("/home/loki/dCrawler/slave/config.json")
 			config = json.load(confFile)
 			confFile.close()
 			#Init variables
-			NUM_THREAD = config['threadNum']
-			self.id = serverID
-			self.accountList = accountList
+			self.id = deepcopy(serverID)
+			self.threadCount = deepcopy(threadCount)
+			self.accountList = deepcopy(accountList)
 			self.callback = fetchNewJobCB
 			self.todoQueue = Queue()
 			self.resultQueue = Queue()
@@ -36,11 +39,13 @@ class CrawlerService(rpyc.Service):
 			logconfig = config['log']
 			logging.config.dictConfig(logconfig)
 			self.logger = logging.getLogger("main")
+			self.logger.info("accounts to use: %r" % self.accountList)
 			#Start working thread
 			self.thread = Thread(target = self.work)
 			self.thread.start()
 
 		def work(self):
+			self.logger.info("start to work")
 			#Init local variables
 			job = None
 			frList = []
@@ -48,9 +53,9 @@ class CrawlerService(rpyc.Service):
 			dbConn = self.persistDB.connection()
 			dbCur = dbConn.cursor()
 			SQL = "INSERT IGNORE INTO `crawledUID` (`uid`) VALUES (%d)"
-			numAcPThread = len(self.accountList) / NUM_THREAD
+			numAcPThread = len(self.accountList) / self.threadCount
 			#Init threads for work
-			for _ in xrange(NUM_THREAD):
+			for _ in xrange(self.threadCount):
 				assignedAccounts =  map(lambda x: self.accountList.pop(), xrange(numAcPThread))
 				thread = Thread(target = subworkerProcessing, args=(_+1, self.persistDB, self.todoQueue, self.resultQueue, assignedAccounts, ))
 				thread.daemon = True
@@ -60,13 +65,15 @@ class CrawlerService(rpyc.Service):
 				#CB & Fetch Jobs
 				job = self.callback(self.id, job, frList)
 				if job == None:
-					self.logger.info("Jobs are currently unavailable, try again in 1s")
+					self.logger.error("Jobs are currently unavailable, try again in 1s")
 					sleep(1)
 					continue
+				job = deepcopy(job)
 				frList = self.crawl(job)
 				#Update DB when finish
 				dbCur.execute(SQL % job)
 				dbConn.commit()
+				self.logger.info("complete job %r" % job)
 
 		def crawl(self, uid):
 			#frDict: nickName->uid
@@ -209,6 +216,7 @@ class CrawlerService(rpyc.Service):
 			frList = map(lambda x: x[0], sortedList[: min(len(sortedList), MAX_FRLIST_NUM)])
 			return frList
 
-#if __name__ =="__main__":
-#	s = ThreadedServer(CrawlerService, port=18000, registrar=TCPRegistryClient("172.18.216.161"), logger = logging.getLogger())
-#	s.start()
+if __name__ =="__main__":
+	#s = ThreadedServer(CrawlerService, port=18000, registrar=TCPRegistryClient("172.18.216.161"), logger = logging.getLogger())
+	s = ThreadedServer(CrawlerService, port=18000)
+	s.start()

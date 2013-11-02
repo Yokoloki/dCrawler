@@ -134,7 +134,7 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 			recSpendTime[timeIndex] = time() - stTime
 			avgTime = sum(recSpendTime)/SLOT_SIZE
 			if avgTime < TIME_LIMIT_PER_REQ:
-				logger.info("Limiting rate for accout %s, delay for %.2fs" % (account['user'], (2*(TIME_LIMIT_PER_REQ-avgTime))))
+				logger.debug("Limiting rate for accout %s, delay for %.2fs" % (account['user'], (2*(TIME_LIMIT_PER_REQ-avgTime))))
 				sleep(2*(TIME_LIMIT_PER_REQ-avgTime))
 				recSpendTime[timeIndex] += 2*(TIME_LIMIT_PER_REQ-avgTime)
 			timeIndex = (timeIndex+1)%SLOT_SIZE
