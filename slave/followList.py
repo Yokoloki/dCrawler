@@ -9,6 +9,8 @@ def followListProcessing(uid, page, fetcher, dbConn, dbCur):
 	if soup.find('div', attrs={"class": "tip"}) and soup.find('div', attrs={"class": "tip"}).get_text().find('首页') != -1:
 		raise accountLimitedException
 	if page == 1:
+		spanText = soup.find(attrs={"class": "tip2"}).find('span', attrs={"class": "tc"}).get_text()
+		followCount = int(spanText[spanText.find('[')+1 : spanText.find(']')])
 		pageInfo = soup.find(attrs={"class":"pa","id":"pagelist"})
 		numPage = getPageCount(pageInfo)
 	tables = soup.findAll('table')
@@ -33,7 +35,7 @@ def followListProcessing(uid, page, fetcher, dbConn, dbCur):
 	
 	dbConn.commit()
 
-	return [numPage, followDict] if page == 1 else followDict
+	return [followCount, numPage, followDict] if page == 1 else followDict
 
 def getPageCount(pageInfo):
 	if not pageInfo:

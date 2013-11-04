@@ -7,7 +7,8 @@ import random
 import logging, logging.config, logging.handlers
 from operator import itemgetter
 from Queue import Queue, Empty
-from time import time
+from time import time, localtime
+from copy import deepcopy
 
 reload(sys)
 sys.setdefaultencoding("utf-8")
@@ -39,6 +40,7 @@ class Scheduler:
 		self.todoQueue = Queue()
 		self.doneQueue = Queue()
 		self.crawledSet = set()
+		self.crawledSet.add(-1)
 		self.numCrawled = 0
 		#Init workers
 		self.logger.info('Connecting with remote servers...')
@@ -96,10 +98,11 @@ class Scheduler:
 		return uidList
 
 	def fetchNewJob(self, serverID, prevJob, frList):
-		self.logger.debug("Server%d is fetching a new job" % serverID)
 		if prevJob != None:
+			self.logger.debug("Server%d return the result of previous Job" % serverID)
 			self.todoQueue.task_done()
-			self.doneQueue.put({'sid':serverID, 'uid':prevJob, 'frList':frList.copy()})
+			self.doneQueue.put({'sid':deepcopy(serverID), 'uid':deepcopy(prevJob), 'frList':deepcopy(frList)})
+		self.logger.debug("Server%d trying to get a new job" % serverID)
 		try:
 			newJob = self.todoQueue.get(True, 5)
 		except Empty:
@@ -108,6 +111,7 @@ class Scheduler:
 
 	def work(self):
 		#Retrive info of last execution from DB
+		stTime = localtime()
 		self.logger.info('Retrieving information from database...')
 		toCrawlDict = self.retrieveFromDB()
 		canceled = False
@@ -116,17 +120,21 @@ class Scheduler:
 			while not self.doneQueue.empty():
 				doneJobInfo = self.doneQueue.get_nowait()
 				self.crawledSet.add(doneJobInfo['uid'])
-				for fr in doneJobInfo['frList']:
-					if fr not in self.crawledSet:
-						toCrawlDict[fr] = toCrawlDict[fr]+1 if toCrawlDict.get(fr) else 1
+				self.logger.debug("%d crawled" % doneJobInfo['uid'])
+				if doneJobInfo['frList']:
+					for fr in doneJobInfo['frList']:
+						if fr not in self.crawledSet:
+							toCrawlDict[fr] = toCrawlDict[fr]+1 if toCrawlDict.get(fr) else 1
 			priorUIDList = self.getPriorUIDs()
 			map(lambda x: self.todoQueue.put(x), priorUIDList)
 			if priorUIDList == []:
 				sortedList = sorted(toCrawlDict.iteritems(), key=itemgetter(1), reverse=True)
 				#Only choose those more valuable user if more than x uid to add
-				for i in xrange(min(MAXNUM_TOCRAWL_EACHROUND, len(sortedList))):
-					self.todoQueue.put(sortedList[i][0])
-				self.logger.info("Uids to crawl: %r" % sortedList[:min(MAXNUM_TOCRAWL_EACHROUND, len(sortedList))][0])
+				toCrawlList = map(lambda x:x[0], sortedList[:min(MAXNUM_TOCRAWL_EACHROUND, len(sortedList))])
+				for i in xrange(len(toCrawlList)):
+					self.todoQueue.put(toCrawlList[i])
+					toCrawlDict.pop(toCrawlList[i])
+				self.logger.info("Uids to crawl: %r" % toCrawlList)
 			else:
 				self.logger.info("Uids to crawl: %r" % priorUIDList)
 			#Wait until this round of jobs done
@@ -140,7 +148,7 @@ class Scheduler:
 			self.logger.info("%d users crawled in %fs, %f/s" % (
 				self.doneQueue.qsize(), eTime-sTime,
 				(self.doneQueue.qsize()/(eTime-sTime))))
-			self.logger.info("%d users are done in total" % self.numCrawled)
+			self.logger.info("%d users are crawled since %d-%d-%d %d:%d" % (self.numCrawled, stTime[0], stTime[1], stTime[2], stTime[3], stTime[4]))
 		self.summary()
 
 	def summary(self):

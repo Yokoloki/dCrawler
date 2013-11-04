@@ -52,7 +52,8 @@ class CrawlerService(rpyc.Service):
 			t = 0
 			dbConn = self.persistDB.connection()
 			dbCur = dbConn.cursor()
-			SQL = "INSERT IGNORE INTO `crawledUID` (`uid`) VALUES (%d)"
+			SQL1 = "INSERT IGNORE INTO `crawledUID` (`uid`) VALUES (\'%d\')"
+			SQL2 = "INSERT IGNORE INTO `cpUID` (`uid`) VALUES (\'%d\')"
 			numAcPThread = len(self.accountList) / self.threadCount
 			#Init threads for work
 			for _ in xrange(self.threadCount):
@@ -71,31 +72,31 @@ class CrawlerService(rpyc.Service):
 				job = deepcopy(job)
 				frList = self.crawl(job)
 				#Update DB when finish
-				dbCur.execute(SQL % job)
+				dbCur.execute(SQL1 % job)
+				if frList == None:
+					dbCur.execute(SQL2 % job)
 				dbConn.commit()
 				self.logger.info("complete job %r" % job)
 
 		def crawl(self, uid):
 			#frDict: nickName->uid
 			#staticsDict: uid->calledTimes
-			self.logger.info('%d - crawlFrList' % uid)
+			if uid == -1: return None
 			frDict = self.crawlFrList(uid)
-			self.logger.info('%d - crawlContent' % uid)
+			if frDict == None:
+				return None
 			[midListWithPraise, midListWithComment, unresolvedATDict, staticsDict] = self.crawlContent(uid, frDict)
 			#Resolve @Names, update the staticsDict, and return the name->uid dict
-			self.logger.info('%d - resolveWeiboNames' % uid)
 			nameDict = self.resolveWeiboNames(unresolvedATDict, staticsDict)
-			self.logger.info('%d - crawlPraise' % uid)
 			nameDict = self.crawlPraise(midListWithPraise, nameDict)
-			self.logger.info('%d - crawlComment' % uid)
 			unresolvedDict = self.crawlComment(midListWithComment, frDict, nameDict, staticsDict)
 			#Resolve names appears in comments, update the staticsDict and return the name->uid dict
-			self.logger.info('%d - resolveCommentNames' % uid)
 			self.resolveCommentNames(unresolvedDict, staticsDict)
 			frList = self.getPotentialFrs(staticsDict)
 			return frList
 
 		def crawlFrList(self, uid):
+			self.logger.info('crawling FrList of %d' % uid)
 			fanListJob = ['fanList', uid, 1]
 			followListJob = ['followList', uid, 1]
 			self.todoQueue.put(fanListJob)
@@ -105,18 +106,23 @@ class CrawlerService(rpyc.Service):
 			followDict = {}
 			fanDict = {}
 			frDict = {}
+			isNormalID = True
 			while not self.resultQueue.empty():
 				result = self.resultQueue.get_nowait()
+				isNormalID &= result[2]
 				if result[0] == 'followList':
 					followDict.update(result[1])
 				else:
 					fanDict.update(result[1])
+			if not isNormalID:
+				return None
 			friendNameList = list(set(followDict) & set(fanDict))
 			for name in friendNameList:
 				frDict[name] = followDict[name]
 			return frDict
 
 		def crawlContent(self, uid, frDict):
+			self.logger.info('crawling weibo content of %d' % uid)
 			self.todoQueue.put(['content', uid, 1, frDict])
 			self.todoQueue.join()
 
@@ -143,6 +149,7 @@ class CrawlerService(rpyc.Service):
 			return [midListWithPraise, midListWithComment, unresolvedATDict, staticsDict]
 
 		def resolveWeiboNames(self, unresolvedATDict, staticsDict):
+			self.logger.info('%d names to resolve for weibo AT' % len(staticsDict))
 			for name, mids in unresolvedATDict.iteritems():
 				self.todoQueue.put(['resolveWeibo', name, mids])
 			self.todoQueue.join()
@@ -160,6 +167,7 @@ class CrawlerService(rpyc.Service):
 			return nameDict
 
 		def crawlPraise(self, midList, nameDict):
+			self.logger.info('%d weibos\' parise to crawl' % len(midList))
 			for mid in midList:
 				self.todoQueue.put(['praise', mid, 1])
 			self.todoQueue.join()
@@ -171,6 +179,7 @@ class CrawlerService(rpyc.Service):
 			return nameDict
 
 		def crawlComment(self, midList, frDict, nameDict, staticsDict):
+			self.logger.info('%d weibos\' comment to crawl' % len(midList))
 			for mid in midList:
 				self.todoQueue.put(['comment', mid, 1, frDict, nameDict])
 			self.todoQueue.join()
@@ -193,6 +202,7 @@ class CrawlerService(rpyc.Service):
 			return unresolvedDict
 
 		def resolveCommentNames(self, unresolvedDict, staticsDict):
+			self.logger.info('%d names to resolve for comment' % len(staticsDict))
 			for name, lists in unresolvedDict.iteritems():
 				self.todoQueue.put(['resolveComment', name, lists])
 			self.todoQueue.join()
@@ -218,5 +228,5 @@ class CrawlerService(rpyc.Service):
 
 if __name__ =="__main__":
 	#s = ThreadedServer(CrawlerService, port=18000, registrar=TCPRegistryClient("172.18.216.161"), logger = logging.getLogger())
-	s = ThreadedServer(CrawlerService, port=18000)
+	s = ThreadedServer(CrawlerService, port=18000, protocol_config={"allow_pickle":True})
 	s.start()

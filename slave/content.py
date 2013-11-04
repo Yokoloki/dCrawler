@@ -71,7 +71,7 @@ def contentProcessing(uid, page, frDict, fetcher, dbConn, dbCur):
 		for link in atLinks:
 			name = link.get_text()
 			#in case of other links in the weibo
-			if name.find('@') == -1:
+			if name[0] != '@' or name.find(' ') != -1:
 				continue
 			name = name[1:]
 			if name in frDict:

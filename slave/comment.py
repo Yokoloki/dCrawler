@@ -114,7 +114,7 @@ def getPageCount(pInfo):
 def getATList(atInfo, frDict, nameDict):
 	atInfoList = []
 	for info in atInfo:
-		if info.get_text().find('@') == -1:
+		if info.get_text()[0] != '@' or info.get_text().find(' ') != -1:
 			continue
 		atName = info.get_text()[1:]
 		atUID = frDict.get(atName) or nameDict.get(atName)

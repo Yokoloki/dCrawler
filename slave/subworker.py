@@ -15,6 +15,8 @@ from resolve import weiboATResolving, commentResolving
 MAX_WEIBO_PAGE = 20
 MAX_COMMENT_PAGE = 5
 MAX_PRAISE_PAGE = 5
+FAN_COUNT_THRESHOLD = 10000
+FOLLOW_COUNT_THRESHOLD = 10000
 SWITCH_ACCOUNT_INTERVAL = 200
 TIME_LIMIT_PER_REQ = 0.8
 SLOT_SIZE = 10
@@ -64,24 +66,34 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 			if cmd == "followList":
 				uid = todo[1]
 				page = todo[2]
+				isNormalUID = True
 				if page == 1:
-					[pageCount, followDict] = followListProcessing(uid, page, fetcher, dbConn, dbCur)
-					for p in xrange(2, pageCount+1):
-						todoQueue.put([cmd, uid, p])
+					[followCount, pageCount, followDict] = followListProcessing(uid, page, fetcher, dbConn, dbCur)
+					if followCount > FOLLOW_COUNT_THRESHOLD:
+						logger.info('%d\'s followCount=%d, exceeds threshold' % (uid, followCount))
+						isNormalUID = False
+					else:
+						for p in xrange(2, pageCount+1):
+							todoQueue.put([cmd, uid, p])
 				else:
 					followDict = followListProcessing(uid, page, fetcher, dbConn, dbCur)
-				resultQueue.put([cmd, followDict])
+				resultQueue.put([cmd, followDict, isNormalUID])
 
 			elif cmd == "fanList":
 				uid = todo[1]
 				page = todo[2]
+				isNormalUID = True
 				if page == 1:
-					[pageCount, fanDict] = fanListProcessing(uid, page, fetcher, dbConn, dbCur)
-					for p in xrange(2, pageCount+1):
-						todoQueue.put([cmd, uid, p])
+					[fanCount, pageCount, fanDict] = fanListProcessing(uid, page, fetcher, dbConn, dbCur)
+					if fanCount > FAN_COUNT_THRESHOLD:
+						logger.info('%d\'s fanCount=%d, exceeds threshold' % (uid, fanCount))
+						isNormalUID = False
+					else:
+						for p in xrange(2, pageCount+1):
+							todoQueue.put([cmd, uid, p])
 				else:
 					fanDict = fanListProcessing(uid, page, fetcher, dbConn, dbCur)
-				resultQueue.put([cmd, fanDict])
+				resultQueue.put([cmd, fanDict, isNormalUID])
 
 			elif cmd == "content":
 				uid = todo[1]
