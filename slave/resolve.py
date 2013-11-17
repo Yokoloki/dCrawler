@@ -9,10 +9,7 @@ def nameResolving(name, fetcher, dbConn, dbCur):
 		uid = dbCur.fetchone()
 		return uid[0]
 	url = 'http://weibo.cn/n/%s' % name
-	content = fetcher.fetch(url)
-	soup = BeautifulSoup(content)
-	if soup.find('div', attrs={"class": "tip"}) and soup.find('div', attrs={"class": "tip"}).get_text().find('首页') != -1:
-		raise accountLimitedException
+	soup = fetcher.fetch(url)
 	result = soup.find('div', attrs={'class':'tip2'})
 	if result:
 		url = result.find('a')['href']

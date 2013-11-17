@@ -7,6 +7,7 @@ import datetime
 import lxml.html as HTML
 from lxml.etree import XMLSyntaxError
 from time import sleep
+from bs4 import BeautifulSoup
 
 class Fetcher(object):
     def __init__(self):
@@ -76,12 +77,25 @@ class Fetcher(object):
             try:
                 req = urllib2.Request(url, headers=self.headers)
                 response = self.opener.open(req)
-                return response.read()
-            except:
-                self.logger.error('fetch %s error, try again in 0.2s' % url)
+                content = response.read()
+                break
+            except Exception, e:
+                self.logger.error('%r when fetching %s, try again in 0.2s' % (e, url))
                 sleep(0.2)
+        soup = BeautifulSoup(content)
+        if soup.find('div', attrs={"class": "tip"}) and soup.find('div', attrs={"class": "tip"}).get_text().find('首页') != -1:
+            raise accountLimitedException
+        if soup.find('div', attrs={"class": "c"}) and soup.find('div', attrs={"class": "c"}).get_text().find('您的微博帐号出现异常被暂时冻结') != -1:
+            raise accountLimitedException
+        return soup
+
+
 
 class accountLimitedException(Exception):
     pass
 class accountBannedException(Exception):
+    pass
+class loginException(Exception):
+    pass
+class fetcherException(Exception):
     pass

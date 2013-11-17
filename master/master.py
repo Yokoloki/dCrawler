@@ -7,13 +7,30 @@ import random
 import logging, logging.config, logging.handlers
 from operator import itemgetter
 from Queue import Queue, Empty
-from time import time, localtime
+from time import time, localtime, sleep
 from copy import deepcopy
 
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
 MAXNUM_TOCRAWL_EACHROUND = 100
+JOIN_TIMEOUT_PERROUNT = 2000
+
+class timeoutQueue(Queue):
+	def join_with_timeout(self, timeout):
+		self.all_tasks_done.acquire()
+		try:
+			endTime = time() + timeout
+			while self.unfinished_tasks:
+				remaining = endTime - time()
+				if remaining <= 0.0:
+					raise JoinTimeout
+				self.all_tasks_done.wait(remaining)
+		finally:
+			self.all_tasks_done.release()
+class JoinTimeout(Exception):
+	pass
+
 class Scheduler:
 	def __init__(self):
 		#Import weibo accounts from json
@@ -30,31 +47,23 @@ class Scheduler:
 		logging.config.dictConfig(self.config['log'])
 		self.logger = logging.getLogger()
 
-		dbconfig = self.config['db']
-		self.dbConn = MySQLdb.connect(host=dbconfig['host'], user=dbconfig['user'], passwd=dbconfig['passwd'], db=dbconfig['name'], charset='utf8')
-		self.dbCur = self.dbConn.cursor()
-
-		threadCount = self.config['threadCount']
-		serverPool = self.config['servers']
+		self.dbConfig = self.config['db']
+		self.threadCount = self.config['threadCount']
+		self.serverPool = self.config['servers']
 		#Init variables
-		self.todoQueue = Queue()
+		self.todoQueue = timeoutQueue()
 		self.doneQueue = Queue()
 		self.crawledSet = set()
 		self.crawledSet.add(-1)
 		self.numCrawled = 0
+		self.dbConn = MySQLdb.connect(host=self.dbConfig['host'], user=self.dbConfig['user'], passwd=self.dbConfig['passwd'], db=self.dbConfig['name'], charset='utf8')
+		self.dbCur = self.dbConn.cursor()
 		#Init workers
-		self.logger.info('Connecting with remote servers...')
 		self.connList = []
 		self.threadList = []
 		self.crawlerList = []
-		for serverID, server in enumerate(serverPool):
-			conn = rpyc.connect(server[0], server[1], config={"allow_pickle":True})
-			bgThread = rpyc.BgServingThread(conn)
-			accountList = self.accounts[serverID*len(self.accounts)/len(serverPool):(serverID+1)*len(self.accounts)/len(serverPool)]
-			crawler = conn.root.Crawler(serverID, threadCount, accountList, self.fetchNewJob)
-			self.connList.append(conn)
-			self.threadList.append(bgThread)
-			self.crawlerList.append(crawler)
+		self.initSlaveNodes()
+
 
 	def __enter__(self):
 		return self
@@ -67,6 +76,26 @@ class Scheduler:
 		self.dbConn.close()
 		self.logger.info("%d user data are crawled in this execution" % self.numCrawled)
 		return
+
+	def initSlaveNodes(self):
+		self.logger.info('Connecting with remote servers...')
+		for thread in self.threadList:
+			thread.stop()
+		for conn in self.connList:
+			conn.close()
+		sleep(10)
+		self.connList = []
+		self.threadList = []
+		self.crawlerList = []
+		random.shuffle(self.accounts)
+		for serverID, server in enumerate(self.serverPool):
+			conn = rpyc.connect(server[0], server[1], config={"allow_pickle":True})
+			bgThread = rpyc.BgServingThread(conn)
+			accountList = self.accounts[serverID*len(self.accounts)/len(self.serverPool):(serverID+1)*len(self.accounts)/len(self.serverPool)]
+			crawler = conn.root.Crawler(serverID, self.threadCount, self.dbConfig, accountList, self.fetchNewJob)
+			self.connList.append(conn)
+			self.threadList.append(bgThread)
+			self.crawlerList.append(crawler)
 
 	def retrieveFromDB(self):
 		#Get users already crawled
@@ -97,11 +126,12 @@ class Scheduler:
 		self.dbCur.execute(SQL)
 		return uidList
 
-	def fetchNewJob(self, serverID, prevJob, frList):
+	def fetchNewJob(self, serverID, prevJob, finished, frList):
 		if prevJob != None:
 			self.logger.debug("Server%d return the result of previous Job" % serverID)
 			self.todoQueue.task_done()
-			self.doneQueue.put({'sid':deepcopy(serverID), 'uid':deepcopy(prevJob), 'frList':deepcopy(frList)})
+			if finished:
+				self.doneQueue.put({'sid':deepcopy(serverID), 'uid':deepcopy(prevJob), 'frList':deepcopy(frList)})
 		self.logger.debug("Server%d trying to get a new job" % serverID)
 		try:
 			newJob = self.todoQueue.get(True, 5)
@@ -115,16 +145,22 @@ class Scheduler:
 		self.logger.info('Retrieving information from database...')
 		toCrawlDict = self.retrieveFromDB()
 		canceled = False
+		reInit = False
 		#setupWorkersNodes & let them block in todoQueue.get()
 		while not canceled:
 			while not self.doneQueue.empty():
 				doneJobInfo = self.doneQueue.get_nowait()
+				if toCrawlDict.get(doneJobInfo['uid']):
+					toCrawlDict.pop(doneJobInfo['uid'])
 				self.crawledSet.add(doneJobInfo['uid'])
 				self.logger.debug("%d crawled" % doneJobInfo['uid'])
 				if doneJobInfo['frList']:
 					for fr in doneJobInfo['frList']:
 						if fr not in self.crawledSet:
 							toCrawlDict[fr] = toCrawlDict[fr]+1 if toCrawlDict.get(fr) else 1
+			if reInit:
+				self.logger.info('Reinit slave nodes')
+				self.initSlaveNodes()
 			priorUIDList = self.getPriorUIDs()
 			map(lambda x: self.todoQueue.put(x), priorUIDList)
 			if priorUIDList == []:
@@ -133,16 +169,18 @@ class Scheduler:
 				toCrawlList = map(lambda x:x[0], sortedList[:min(MAXNUM_TOCRAWL_EACHROUND, len(sortedList))])
 				for i in xrange(len(toCrawlList)):
 					self.todoQueue.put(toCrawlList[i])
-					toCrawlDict.pop(toCrawlList[i])
 				self.logger.info("Uids to crawl: %r" % toCrawlList)
 			else:
 				self.logger.info("Uids to crawl: %r" % priorUIDList)
 			#Wait until this round of jobs done
 			sTime = time()
 			try:
-				self.todoQueue.join()
+				self.todoQueue.join_with_timeout(JOIN_TIMEOUT_PERROUNT)
 			except KeyboardInterrupt:
 				canceled = True
+			except JoinTimeout:
+				reInit = True
+				self.logger.error('todoQueue join timeout')
 			eTime = time()
 			self.numCrawled += self.doneQueue.qsize()
 			self.logger.info("%d users crawled in %fs, %f/s" % (

@@ -5,10 +5,7 @@ from weiboCN import accountLimitedException
 
 def praiseProcessing(mid, page, fetcher, dbConn, dbCur):
 	url = 'http://weibo.cn/attitude/%s?page=%d' % (mid, page)
-	content = fetcher.fetch(url)
-	soup = BeautifulSoup(content)
-	if soup.find('div', attrs={"class": "tip"}) and soup.find('div', attrs={"class": "tip"}).get_text().find('首页') != -1:
-		raise accountLimitedException
+	soup = fetcher.fetch(url)
 	if page == 1:
 		pInfo = soup.find(attrs={"class": "pa", "id": "pagelist"})
 		pageCount = getPageCount(pInfo)

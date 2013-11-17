@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 from time import sleep, time
-from Queue import Queue
+from Queue import Queue, Empty
 from DBUtils.PersistentDB import PersistentDB
 
 from weiboCN import Fetcher, accountLimitedException, accountBannedException
@@ -20,7 +20,7 @@ FOLLOW_COUNT_THRESHOLD = 10000
 SWITCH_ACCOUNT_INTERVAL = 200
 TIME_LIMIT_PER_REQ = 0.8
 SLOT_SIZE = 10
-def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts):
+def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts, pThread):
 	dbConn = persistDB.connection()
 	dbCur = dbConn.cursor()
 	accountQueue = Queue()
@@ -30,7 +30,7 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 	fetcher = Fetcher()
 	recSpendTime = [TIME_LIMIT_PER_REQ]*SLOT_SIZE
 	timeIndex = 0
-	while True:
+	while pThread.isAlive():
 		try:
 			fetcher.login(account['user'], account['pwd'])
 			break
@@ -40,7 +40,7 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 			account = accountQueue.get()
 			sleep(1)
 	switchAccountTimer = 0
-	while True:
+	while pThread.isAlive():
 		try:
 			switchAccountTimer +=1
 			if switchAccountTimer%SWITCH_ACCOUNT_INTERVAL == 0:
@@ -50,7 +50,7 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				fetcher = Fetcher()
 				recSpendTime = [TIME_LIMIT_PER_REQ]*SLOT_SIZE
 				timeIndex = 0
-				while True:
+				while pThread.isAlive():
 					try:
 						fetcher.login(account['user'], account['pwd'])
 						break
@@ -59,7 +59,13 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 						accountQueue.put(account)
 						account = accountQueue.get()
 						sleep(1)
-			todo = todoQueue.get()
+			try:
+				todo = todoQueue.get(True, 3)
+			except Empty:
+				todo = None
+				continue
+
+			switchAccountTimer += 1
 			stTime = time()
 			logger.debug("%r %r" % (account['user'], todo[:3]))
 			cmd = todo[0]
@@ -154,11 +160,12 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 		except accountLimitedException:
 			todoQueue.put(todo)
 			switchAccountTimer = -1
-			logger.error("Account %s Limited, sleep 300s" % account['user'])
-			sleep(300)
+			logger.error("Account %s Limited, sleep 100s" % account['user'])
+			sleep(100)
 
 		except Exception, e:
 			todoQueue.put(todo)
 			logger.error("Exception: %r" % e)
 		finally:
-			todoQueue.task_done()
+			if todo != None:
+				todoQueue.task_done()

@@ -5,78 +5,97 @@ import json
 import logging, logging.config, logging.handlers
 import MySQLdb
 from Queue import Queue
-from threading import Thread
+from threading import Thread, currentThread
 from operator import itemgetter
 from rpyc.utils.server import ThreadedServer
 from rpyc.utils.registry import TCPRegistryClient
 from DBUtils.PersistentDB import PersistentDB
-from time import sleep
+from time import sleep, time
 from subworker import subworkerProcessing
 from copy import deepcopy
 
 reload(sys)
 sys.setdefaultencoding("utf-8")
+JOIN_TIMEOUT_PERROUNT = 300
 
-MAX_FRLIST_NUM = 100
+class timeoutQueue(Queue):
+	def join_with_timeout(self, timeout):
+		self.all_tasks_done.acquire()
+		try:
+			endTime = time() + timeout
+			while self.unfinished_tasks:
+				remaining = endTime - time()
+				if remaining <= 0.0:
+					raise JoinTimeout
+				self.all_tasks_done.wait(remaining)
+		finally:
+			self.all_tasks_done.release()
+class JoinTimeout(Exception):
+	pass
+
+MAX_FRLIST_NUM = 200
 class CrawlerService(rpyc.Service):
 	class exposed_Crawler(object):
-		def __init__(self, serverID, threadCount, accountList, fetchNewJobCB):
-			#Import configs
-			confFile = file("/home/loki/dCrawler/slave/config.json")
-			config = json.load(confFile)
-			confFile.close()
+		def __init__(self, serverID, threadCount, dbConfig, accountList, fetchNewJobCB):
 			#Init variables
 			self.id = deepcopy(serverID)
 			self.threadCount = deepcopy(threadCount)
+			self.dbConfig = deepcopy(dbConfig)
 			self.accountList = deepcopy(accountList)
 			self.callback = fetchNewJobCB
-			self.todoQueue = Queue()
+			self.todoQueue = timeoutQueue()
 			self.resultQueue = Queue()
 			#Init DBpool
-			dbconfig = config['db']
-			self.persistDB = PersistentDB(MySQLdb, host=dbconfig['host'], user=dbconfig['user'], passwd=dbconfig['passwd'], db=dbconfig['name'], charset='utf8')
+			self.persistDB = PersistentDB(MySQLdb, host=self.dbConfig['host'], user=self.dbConfig['user'], passwd=self.dbConfig['passwd'], db=self.dbConfig['name'], charset='utf8')
 			#Init Logger
-			logconfig = config['log']
-			logging.config.dictConfig(logconfig)
 			self.logger = logging.getLogger("main")
 			self.logger.info("accounts to use: %r" % self.accountList)
 			#Start working thread
-			self.thread = Thread(target = self.work)
+			self.thread = Thread(target = self.work, args=(currentThread(), ))
 			self.thread.start()
+			#Init threads for work
+			numAcPThread = len(self.accountList) / self.threadCount
+			for _ in xrange(self.threadCount):
+				assignedAccounts =  map(lambda x: self.accountList.pop(), xrange(numAcPThread))
+				thread = Thread(target = subworkerProcessing, args=(_+1, self.persistDB, self.todoQueue, self.resultQueue, assignedAccounts, currentThread(), ))
+				thread.start()
 
-		def work(self):
+		def work(self, pThread):
 			self.logger.info("start to work")
 			#Init local variables
 			job = None
+			finished = True
 			frList = []
 			t = 0
 			dbConn = self.persistDB.connection()
 			dbCur = dbConn.cursor()
 			SQL1 = "INSERT IGNORE INTO `crawledUID` (`uid`) VALUES (\'%d\')"
 			SQL2 = "INSERT IGNORE INTO `cpUID` (`uid`) VALUES (\'%d\')"
-			numAcPThread = len(self.accountList) / self.threadCount
-			#Init threads for work
-			for _ in xrange(self.threadCount):
-				assignedAccounts =  map(lambda x: self.accountList.pop(), xrange(numAcPThread))
-				thread = Thread(target = subworkerProcessing, args=(_+1, self.persistDB, self.todoQueue, self.resultQueue, assignedAccounts, ))
-				thread.daemon = True
-				thread.start()
 			#Start the working loop
-			while True:
-				#CB & Fetch Jobs
-				job = self.callback(self.id, job, frList)
-				if job == None:
-					self.logger.error("Jobs are currently unavailable, try again in 1s")
-					sleep(1)
-					continue
-				job = deepcopy(job)
-				frList = self.crawl(job)
-				#Update DB when finish
-				dbCur.execute(SQL1 % job)
-				if frList == None:
-					dbCur.execute(SQL2 % job)
-				dbConn.commit()
-				self.logger.info("complete job %r" % job)
+			while pThread.isAlive():
+				try:
+					job = self.callback(self.id, job, finished, frList)
+					if job == None:
+						self.logger.error("Jobs are currently unavailable, try again in 2s")
+						sleep(2)
+						continue
+					job = deepcopy(job)
+					frList = self.crawl(job)
+					finished = True
+					#Update DB when finish
+					dbCur.execute(SQL1 % job)
+					if frList == None:
+						dbCur.execute(SQL2 % job)
+					dbConn.commit()
+					self.logger.info("complete job %r" % job)
+				except JoinTimeout, e:
+					self.logger.error('JoinTimeoutException: %r' % e)
+					frList = None
+					finished = False
+					self.todoQueue = timeoutQueue()
+					self.resultQueue = Queue()
+				except Exception, e:
+					self.logger.error('Exception: %r' % e)
 
 		def crawl(self, uid):
 			#frDict: nickName->uid
@@ -101,7 +120,7 @@ class CrawlerService(rpyc.Service):
 			followListJob = ['followList', uid, 1]
 			self.todoQueue.put(fanListJob)
 			self.todoQueue.put(followListJob)
-			self.todoQueue.join()
+			self.todoQueue.join_with_timeout(JOIN_TIMEOUT_PERROUNT)
 			#Dict: NickName->UID
 			followDict = {}
 			fanDict = {}
@@ -124,7 +143,7 @@ class CrawlerService(rpyc.Service):
 		def crawlContent(self, uid, frDict):
 			self.logger.info('crawling weibo content of %d' % uid)
 			self.todoQueue.put(['content', uid, 1, frDict])
-			self.todoQueue.join()
+			self.todoQueue.join_with_timeout(JOIN_TIMEOUT_PERROUNT)
 
 			midListWithPraise = []
 			midListWithComment = []
@@ -152,7 +171,7 @@ class CrawlerService(rpyc.Service):
 			self.logger.info('%d names to resolve for weibo AT' % len(staticsDict))
 			for name, mids in unresolvedATDict.iteritems():
 				self.todoQueue.put(['resolveWeibo', name, mids])
-			self.todoQueue.join()
+			self.todoQueue.join_with_timeout(JOIN_TIMEOUT_PERROUNT)
 			nameDict = {}
 			while not self.resultQueue.empty():
 				result = self.resultQueue.get_nowait()
@@ -170,7 +189,7 @@ class CrawlerService(rpyc.Service):
 			self.logger.info('%d weibos\' parise to crawl' % len(midList))
 			for mid in midList:
 				self.todoQueue.put(['praise', mid, 1])
-			self.todoQueue.join()
+			self.todoQueue.join_with_timeout(JOIN_TIMEOUT_PERROUNT)
 			while not self.resultQueue.empty():
 				result = self.resultQueue.get_nowait()
 				for name, uid in result[1].iteritems():
@@ -182,7 +201,7 @@ class CrawlerService(rpyc.Service):
 			self.logger.info('%d weibos\' comment to crawl' % len(midList))
 			for mid in midList:
 				self.todoQueue.put(['comment', mid, 1, frDict, nameDict])
-			self.todoQueue.join()
+			self.todoQueue.join_with_timeout(JOIN_TIMEOUT_PERROUNT)
 			unresolvedDict = {}
 			while not self.resultQueue.empty():
 				result = self.resultQueue.get_nowait()
@@ -205,7 +224,7 @@ class CrawlerService(rpyc.Service):
 			self.logger.info('%d names to resolve for comment' % len(staticsDict))
 			for name, lists in unresolvedDict.iteritems():
 				self.todoQueue.put(['resolveComment', name, lists])
-			self.todoQueue.join()
+			self.todoQueue.join_with_timeout(JOIN_TIMEOUT_PERROUNT)
 			nameDict = {}
 			while not self.resultQueue.empty():
 				result = self.resultQueue.get_nowait()
@@ -227,6 +246,9 @@ class CrawlerService(rpyc.Service):
 			return frList
 
 if __name__ =="__main__":
-	#s = ThreadedServer(CrawlerService, port=18000, registrar=TCPRegistryClient("172.18.216.161"), logger = logging.getLogger())
+	confFile = file("/home/loki/dCrawler/slave/config.json")
+	config = json.load(confFile)
+	confFile.close()
+	logging.config.dictConfig(config['log'])
 	s = ThreadedServer(CrawlerService, port=18000, protocol_config={"allow_pickle":True})
 	s.start()

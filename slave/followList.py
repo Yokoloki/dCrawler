@@ -4,10 +4,7 @@ from weiboCN import accountLimitedException
 
 def followListProcessing(uid, page, fetcher, dbConn, dbCur):
 	url = 'http://weibo.cn/%d/follow?page=%d' % (uid, page)
-	html = fetcher.fetch(url)
-	soup = BeautifulSoup(html)
-	if soup.find('div', attrs={"class": "tip"}) and soup.find('div', attrs={"class": "tip"}).get_text().find('首页') != -1:
-		raise accountLimitedException
+	soup = fetcher.fetch(url)
 	if page == 1:
 		spanText = soup.find(attrs={"class": "tip2"}).find('span', attrs={"class": "tc"}).get_text()
 		followCount = int(spanText[spanText.find('[')+1 : spanText.find(']')])

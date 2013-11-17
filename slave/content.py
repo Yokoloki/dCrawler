@@ -5,10 +5,7 @@ from weiboCN import accountLimitedException
 
 def contentProcessing(uid, page, frDict, fetcher, dbConn, dbCur):
 	url = 'http://weibo.cn/%d?page=%d' % (uid, page)
-	content = fetcher.fetch(url)
-	soup = BeautifulSoup(content)
-	if soup.find('div', attrs={"class": "tip"}) and soup.find('div', attrs={"class": "tip"}).get_text().find('首页') != -1:
-		raise accountLimitedException
+	soup = fetcher.fetch(url)
 	if page == 1:
 		#CrawlPersonalInfo()
 		pInfo = soup.find(attrs={"class": "pa", "id": "pagelist"})
@@ -159,5 +156,3 @@ def timeFormatting(timeString):
 		return currTime.strftime('%Y-') + '%s-%s %s:00' % (month, day, timeString[-5:])
 	else:
 		return timeString
-
-
