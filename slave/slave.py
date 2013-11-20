@@ -45,6 +45,8 @@ class CrawlerService(rpyc.Service):
 			self.callback = fetchNewJobCB
 			self.todoQueue = timeoutQueue()
 			self.resultQueue = Queue()
+			self.accountQueue = Queue()
+			map(lambda x: self.accountQueue.put(x), accountList)
 			#Init DBpool
 			self.persistDB = PersistentDB(MySQLdb, host=self.dbConfig['host'], user=self.dbConfig['user'], passwd=self.dbConfig['passwd'], db=self.dbConfig['name'], charset='utf8')
 			#Init Logger

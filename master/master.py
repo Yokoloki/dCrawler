@@ -37,6 +37,7 @@ class Scheduler:
 		#[{'user':'xxx', 'psw':'xxx'}, ...]'
 		acFile = file("accounts.json")
 		self.accounts = json.load(acFile)
+		self.accounts = self.accounts['usable']
 		random.shuffle(self.accounts)
 		acFile.close()
 		#Import other configs(DB)

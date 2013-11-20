@@ -3,8 +3,9 @@ import logging
 from time import sleep, time
 from Queue import Queue, Empty
 from DBUtils.PersistentDB import PersistentDB
+from random import random
 
-from weiboCN import Fetcher, accountLimitedException, accountBannedException
+from weiboCN import Fetcher, accountLimitedException, accountFreezedException, accountBannedException
 from followList import followListProcessing
 from fanList import fanListProcessing
 from content import contentProcessing
@@ -18,8 +19,7 @@ MAX_PRAISE_PAGE = 5
 FAN_COUNT_THRESHOLD = 10000
 FOLLOW_COUNT_THRESHOLD = 10000
 SWITCH_ACCOUNT_INTERVAL = 200
-TIME_LIMIT_PER_REQ = 0.8
-SLOT_SIZE = 10
+
 def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts, pThread):
 	dbConn = persistDB.connection()
 	dbCur = dbConn.cursor()
@@ -28,8 +28,6 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 	account = accountQueue.get()
 	logger = logging.getLogger("Thread%d" % tid)
 	fetcher = Fetcher()
-	recSpendTime = [TIME_LIMIT_PER_REQ]*SLOT_SIZE
-	timeIndex = 0
 	while pThread.isAlive():
 		try:
 			fetcher.login(account['user'], account['pwd'])
@@ -48,8 +46,6 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				accountQueue.put(account)
 				account = accountQueue.get()
 				fetcher = Fetcher()
-				recSpendTime = [TIME_LIMIT_PER_REQ]*SLOT_SIZE
-				timeIndex = 0
 				while pThread.isAlive():
 					try:
 						fetcher.login(account['user'], account['pwd'])
@@ -64,6 +60,7 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 			except Empty:
 				todo = None
 				continue
+			sleep(random())
 
 			switchAccountTimer += 1
 			stTime = time()
@@ -148,20 +145,17 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				lists = todo[2]
 				[uid, appTimes] = commentResolving(name, lists, fetcher, dbConn, dbCur)
 				resultQueue.put([cmd, name, uid, appTimes])
-			#Rate Limit
-			recSpendTime[timeIndex] = time() - stTime
-			avgTime = sum(recSpendTime)/SLOT_SIZE
-			if avgTime < TIME_LIMIT_PER_REQ:
-				logger.debug("Limiting rate for accout %s, delay for %.2fs" % (account['user'], (2*(TIME_LIMIT_PER_REQ-avgTime))))
-				sleep(2*(TIME_LIMIT_PER_REQ-avgTime))
-				recSpendTime[timeIndex] += 2*(TIME_LIMIT_PER_REQ-avgTime)
-			timeIndex = (timeIndex+1)%SLOT_SIZE
 
 		except accountLimitedException:
 			todoQueue.put(todo)
 			switchAccountTimer = -1
-			logger.error("Account %s Limited, sleep 100s" % account['user'])
-			sleep(100)
+			logger.error("Account %s Limited, sleep 60s" % account['user'])
+			sleep(60)
+
+		except accountFreezedException:
+			todoQueue.put(todo)
+			switchAccountTimer = -1
+			logger.error("Account %s Freezed" % account['user'])
 
 		except Exception, e:
 			todoQueue.put(todo)

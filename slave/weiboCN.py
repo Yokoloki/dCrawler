@@ -86,12 +86,14 @@ class Fetcher(object):
         if soup.find('div', attrs={"class": "tip"}) and soup.find('div', attrs={"class": "tip"}).get_text().find('首页') != -1:
             raise accountLimitedException
         if soup.find('div', attrs={"class": "c"}) and soup.find('div', attrs={"class": "c"}).get_text().find('您的微博帐号出现异常被暂时冻结') != -1:
-            raise accountLimitedException
+            raise accountFreezedException
         return soup
 
 
 
 class accountLimitedException(Exception):
+    pass
+class accountFreezedException(Exception):
     pass
 class accountBannedException(Exception):
     pass
