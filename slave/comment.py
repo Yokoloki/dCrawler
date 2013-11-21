@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from weiboCN import accountLimitedException
 
-def commentProcessing(mid, page, frDict, nameDict, fetcher, dbConn, dbCur):
+def commentProcessing(mid, page, frDict, nameDict, fetcher):
 	url = 'http://weibo.cn/comment/%s?page=%d' % (mid, page)
 	soup = fetcher.fetch(url)
 	if page == 1:
@@ -88,16 +88,10 @@ def commentProcessing(mid, page, frDict, nameDict, fetcher, dbConn, dbCur):
 				dbCommentList.append((cid, commentTime, commentContent, 1, 0))
 		else:
 			dbCommentList.append((cid, commentTime, commentContent, 0, 0))
-	SQL = "INSERT IGNORE INTO `commentOf` (`cid`, `mid`) VALUES (%s, %s)"
-	dbCur.executemany(SQL, dbCommentOfList)
-	SQL = "INSERT IGNORE INTO `commenting` (`uid`, `cid`) VALUES (%s, %s)"
-	dbCur.executemany(SQL, dbCommentingList)
-	SQL = "INSERT IGNORE INTO `commentInfo` (`cid`, `time`, `content`, `isReply`, `replyTo`) VALUES (%s, %s, %s, %s, %s)"
-	dbCur.executemany(SQL, dbCommentList)
-	SQL = "INSERT IGNORE INTO `commentAT` (`cid`, `uid`) VALUES (%s, %s)"
-	dbCur.executemany(SQL, dbCommentATList)
-	dbConn.commit()
-	return [unresolvedDict, staticsDict, pageCount] if page == 1 else [unresolvedDict, staticsDict]
+			
+	return [pageCount, unresolvedDict, staticsDict, dbCommentOfList, dbCommentingList, dbCommentList, dbCommentATList] \
+		if page == 1 \
+		else [unresolvedDict, staticsDict, dbCommentOfList, dbCommentingList, dbCommentList, dbCommentATList]
 
 def getPageCount(pInfo):
 	if not pInfo:

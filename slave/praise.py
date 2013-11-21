@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from weiboCN import accountLimitedException
 
-def praiseProcessing(mid, page, fetcher, dbConn, dbCur):
+def praiseProcessing(mid, page, fetcher):
 	url = 'http://weibo.cn/attitude/%s?page=%d' % (mid, page)
 	soup = fetcher.fetch(url)
 	if page == 1:
@@ -27,11 +27,7 @@ def praiseProcessing(mid, page, fetcher, dbConn, dbCur):
 		nameDict[name] = uid
 		dbPraisedByList.append((mid, uid, time))
 
-	SQL = "INSERT IGNORE INTO `praisedBy` (`mid`, `uid`, `time`) VALUES (%s, %s, %s)"
-	dbCur.executemany(SQL, dbPraisedByList)
-	dbConn.commit()
-
-	return [pageCount, nameDict] if page == 1 else nameDict
+	return [pageCount, nameDict, dbPraisedByList] if page == 1 else [nameDict, dbPraisedByList]
 
 def getPageCount(pInfo):
 	if not pInfo:

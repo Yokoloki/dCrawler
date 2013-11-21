@@ -61,6 +61,8 @@ class Fetcher(object):
         if not link.startswith('http://'): link = 'http://weibo.cn/%s' % link
         req = urllib2.Request(link, headers=self.headers)
         response = self.opener.open(req)
+        self.setPage()
+        self.setImg()
 
     def logout(self):
         url = 'http://3g.sina.com.cn/prog/wapsite/sso/loginout.php?backURL=http%3A%2F%2Fweibo.cn%2Fpub%2F%3Fvt%3D4&backTitle=%D0%C2%C0%CB%CE%A2%B2%A9&vt=4'
@@ -71,7 +73,42 @@ class Fetcher(object):
         if not link.startswith('http://'): link = 'http://weibo.cn/%s' % link
         req = urllib2.Request(link, headers=self.headers)
         response = self.opener.open(req)
-         
+
+    def setPage(self):
+        url = "http://weibo.cn/account/customize/pagesize"
+        req = urllib2.Request(url, headers=self.headers)
+        response = self.opener.open(req)
+        page = response.read()
+        settingUrl = "http://weibo.cn" + HTML.fromstring(page).xpath("//form")[0].action.strip()
+        data = urllib.urlencode({'act': 'customize',
+                                 'MBlogPageSize': '50',
+                                 'save': '%E9%A2%84%E8%A7%88'})
+        req = urllib2.Request(url, data, self.headers)
+        response = self.opener.open(req)
+
+        url = "http://weibo.cn/account/customize/save?st=2555"
+        req = urllib2.Request(url, headers=self.headers)
+        response = self.opener.open(req)
+        page = response.read()
+        #print len(HTML.fromstring(page).xpath("//div[contains(@class, 'c') and contains(@id, 'M_')]"))
+
+    def setImg(self):
+        url = "http://weibo.cn/account/customize/pic"
+        req = urllib2.Request(url, headers=self.headers)
+        response = self.opener.open(req)
+        page = response.read()
+        settingUrl = "http://weibo.cn" + HTML.fromstring(page).xpath("//form")[0].action.strip()
+        data = urllib.urlencode({'act': 'customize',
+                                 'ShowMblogPic': '0',
+                                 'save': '%E9%A2%84%E8%A7%88'})
+        req = urllib2.Request(url, data, self.headers)
+        response = self.opener.open(req)
+
+        url = "http://weibo.cn/account/customize/save?st=2555"
+        req = urllib2.Request(url, headers=self.headers)
+        response = self.opener.open(req)
+        page = response.read()
+
     def fetch(self, url):
         while True:
             try:

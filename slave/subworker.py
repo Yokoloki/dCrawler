@@ -66,12 +66,13 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 			stTime = time()
 			logger.debug("%r %r" % (account['user'], todo[:3]))
 			cmd = todo[0]
+
 			if cmd == "followList":
 				uid = todo[1]
 				page = todo[2]
 				isNormalUID = True
 				if page == 1:
-					[followCount, pageCount, followDict] = followListProcessing(uid, page, fetcher, dbConn, dbCur)
+					[followCount, pageCount, followDict, dbFollowingList, dbInfoList] = followListProcessing(uid, page, fetcher)
 					if followCount > FOLLOW_COUNT_THRESHOLD:
 						logger.info('%d\'s followCount=%d, exceeds threshold' % (uid, followCount))
 						isNormalUID = False
@@ -79,15 +80,15 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 						for p in xrange(2, pageCount+1):
 							todoQueue.put([cmd, uid, p])
 				else:
-					followDict = followListProcessing(uid, page, fetcher, dbConn, dbCur)
-				resultQueue.put([cmd, followDict, isNormalUID])
+					[followDict, dbFollowingList, dbInfoList] = followListProcessing(uid, page, fetcher)
+				resultQueue.put([cmd, followDict, isNormalUID, dbFollowingList, dbInfoList])
 
 			elif cmd == "fanList":
 				uid = todo[1]
 				page = todo[2]
 				isNormalUID = True
 				if page == 1:
-					[fanCount, pageCount, fanDict] = fanListProcessing(uid, page, fetcher, dbConn, dbCur)
+					[fanCount, pageCount, fanDict, dbFollowingList, dbInfoList] = fanListProcessing(uid, page, fetcher)
 					if fanCount > FAN_COUNT_THRESHOLD:
 						logger.info('%d\'s fanCount=%d, exceeds threshold' % (uid, fanCount))
 						isNormalUID = False
@@ -95,37 +96,37 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 						for p in xrange(2, pageCount+1):
 							todoQueue.put([cmd, uid, p])
 				else:
-					fanDict = fanListProcessing(uid, page, fetcher, dbConn, dbCur)
-				resultQueue.put([cmd, fanDict, isNormalUID])
+					[fanDict, dbFollowingList, dbInfoList] = fanListProcessing(uid, page, fetcher)
+				resultQueue.put([cmd, fanDict, isNormalUID, dbFollowingList, dbInfoList])
 
 			elif cmd == "content":
 				uid = todo[1]
 				page = todo[2]
 				frDict = todo[3]
 				if page == 1:
-					[midListWithPraise, midListWithComment, unresolvedATDict, staticsDict, pageCount] = contentProcessing(uid, page, frDict, fetcher, dbConn, dbCur)
+					[pageCount, midListWithPraise, midListWithComment, unresolvedATDict, staticsDict, dbPostingList, dbWeiboInfoList, dbWeiboAtList] = contentProcessing(uid, page, frDict, fetcher)
 					for p in xrange(2, min(pageCount, MAX_WEIBO_PAGE)+1):
 						todoQueue.put([cmd, uid, p, frDict])
 				else:
-					[midListWithPraise, midListWithComment, unresolvedATDict, staticsDict] = contentProcessing(uid, page, frDict, fetcher, dbConn, dbCur)
-				resultQueue.put([cmd, midListWithPraise, midListWithComment, unresolvedATDict, staticsDict])
+					[midListWithPraise, midListWithComment, unresolvedATDict, staticsDict, dbPostingList, dbWeiboInfoList, dbWeiboAtList] = contentProcessing(uid, page, frDict, fetcher)
+				resultQueue.put([cmd, midListWithPraise, midListWithComment, unresolvedATDict, staticsDict, dbPostingList, dbWeiboInfoList, dbWeiboAtList])
 
 			elif cmd == "resolveWeibo":
 				name = todo[1]
 				relatedMids = todo[2]
-				[uid, atTimes] = weiboATResolving(name, relatedMids, fetcher, dbConn, dbCur)
-				resultQueue.put([cmd, name, uid, atTimes])
+				[uid, atTimes, dbWeiboAtList, dbUserInfo] = weiboATResolving(name, relatedMids, fetcher, dbConn, dbCur)
+				resultQueue.put([cmd, name, uid, atTimes, dbWeiboAtList, dbUserInfo])
 
 			elif cmd == "praise":
 				mid = todo[1]
 				page = todo[2]
 				if page == 1:
-					[pageCount, nameDict] = praiseProcessing(mid, page, fetcher, dbConn, dbCur)
+					[pageCount, nameDict, dbPraisedByList] = praiseProcessing(mid, page, fetcher)
 					for p in xrange(2, min(pageCount, MAX_PRAISE_PAGE)+1):
 						todoQueue.put([cmd, mid, p])
 				else:
-					nameDict = praiseProcessing(mid, page, fetcher, dbConn, dbCur)
-				resultQueue.put([cmd, nameDict])
+					[nameDict, dbPraisedByList] = praiseProcessing(mid, page, fetcher)
+				resultQueue.put([cmd, nameDict, dbPraisedByList])
 
 			elif cmd == "comment":
 				mid = todo[1]
@@ -133,18 +134,18 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				frDict = todo[3]
 				nameDict = todo[4]
 				if page == 1:
-					[unresolvedDict, staticsDict, pageCount] = commentProcessing(mid, page, frDict, nameDict, fetcher, dbConn, dbCur)
+					[pageCount, unresolvedDict, staticsDict, dbCommentOfList, dbCommentingList, dbCommentList, dbCommentATList] = commentProcessing(mid, page, frDict, nameDict, fetcher)
 					for p in xrange(2, min(pageCount, MAX_COMMENT_PAGE)+1):
 						todoQueue.put([cmd, mid, p, frDict, nameDict])
 				else:
-					[unresolvedDict, staticsDict] = commentProcessing(mid, page, frDict, nameDict, fetcher, dbConn, dbCur)
-				resultQueue.put([cmd, unresolvedDict, staticsDict])
+					[unresolvedDict, staticsDict, dbCommentOfList, dbCommentingList, dbCommentList, dbCommentATList] = commentProcessing(mid, page, frDict, nameDict, fetcher)
+				resultQueue.put([cmd, unresolvedDict, staticsDict, dbCommentOfList, dbCommentingList, dbCommentList, dbCommentATList])
 
 			elif cmd == "resolveComment":
 				name = todo[1]
 				lists = todo[2]
-				[uid, appTimes] = commentResolving(name, lists, fetcher, dbConn, dbCur)
-				resultQueue.put([cmd, name, uid, appTimes])
+				[uid, appTimes, dbCommentingList, dbCommentReplyList, dbCommentATList, dbUserInfo] = commentResolving(name, lists, fetcher, dbConn, dbCur)
+				resultQueue.put([cmd, name, uid, appTimes, dbCommentingList, dbCommentReplyList, dbCommentATList, dbUserInfo])
 
 		except accountLimitedException:
 			todoQueue.put(todo)

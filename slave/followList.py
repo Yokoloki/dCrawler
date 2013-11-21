@@ -2,7 +2,7 @@
 from bs4 import BeautifulSoup
 from weiboCN import accountLimitedException
 
-def followListProcessing(uid, page, fetcher, dbConn, dbCur):
+def followListProcessing(uid, page, fetcher):
 	url = 'http://weibo.cn/%d/follow?page=%d' % (uid, page)
 	soup = fetcher.fetch(url)
 	if page == 1:
@@ -24,15 +24,8 @@ def followListProcessing(uid, page, fetcher, dbConn, dbCur):
 		followDict[name] = followID
 		dbFollowingList.append((uid, followID))
 		dbInfoList.append((followID, name, imgUrl))
-	SQL = "INSERT IGNORE INTO `following` (`followerID`, `followedID`) VALUES (%s, %s)"
-	dbCur.executemany(SQL, dbFollowingList)
 
-	SQL = "INSERT IGNORE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%s, %s, %s)"
-	dbCur.executemany(SQL, dbInfoList)
-	
-	dbConn.commit()
-
-	return [followCount, numPage, followDict] if page == 1 else followDict
+	return [followCount, numPage, followDict, dbFollowingList, dbInfoList] if page == 1 else [followDict, dbFollowingList, dbInfoList]
 
 def getPageCount(pageInfo):
 	if not pageInfo:

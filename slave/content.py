@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from weiboCN import accountLimitedException
 
-def contentProcessing(uid, page, frDict, fetcher, dbConn, dbCur):
+def contentProcessing(uid, page, frDict, fetcher):
 	url = 'http://weibo.cn/%d?page=%d' % (uid, page)
 	soup = fetcher.fetch(url)
 	if page == 1:
@@ -101,18 +101,10 @@ def contentProcessing(uid, page, frDict, fetcher, dbConn, dbCur):
 			dbWeiboInfoList.append((mid, postTime, praiseCount, repostCount, commentCount, content, longitude, latitude, 0, 0))
 		else:
 			dbWeiboInfoList.append((mid, postTime, praiseCount, repostCount, commentCount, content, 0, 0, 0, 0))
-	SQL = "INSERT IGNORE INTO `posting` (`uid`, `mid`) VALUES (%s, %s)"
-	dbCur.executemany(SQL, dbPostingList)
 
-	SQL = "INSERT IGNORE INTO `weiboInfo` (`mid`, `time`, `praiseCount`, `repostCount`, `commentCount`, `content`, `longitude`, `latitude`, `isRepost`, `originMid`) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-	dbCur.executemany(SQL, dbWeiboInfoList)
-
-	SQL = "INSERT IGNORE INTO `weiboAT` (`mid`, `uid`) VALUES (%s, %s)"
-	dbCur.executemany(SQL, dbWeiboAtList)
-	
-	dbConn.commit()
-
-	return [midListWithPraise, midListWithComment, unresolvedATDict, staticsDict, pageCount] if page == 1 else [midListWithPraise, midListWithComment, unresolvedATDict, staticsDict]
+	return [pageCount, midListWithPraise, midListWithComment, unresolvedATDict, staticsDict, dbPostingList, dbWeiboInfoList, dbWeiboAtList] \
+		if page == 1 \
+		else [midListWithPraise, midListWithComment, unresolvedATDict, staticsDict, dbPostingList, dbWeiboInfoList, dbWeiboAtList]
 
 def getPageCount(pInfo):
 	if not pInfo:
