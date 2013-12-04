@@ -5,7 +5,7 @@ from Queue import Queue, Empty
 from DBUtils.PersistentDB import PersistentDB
 from random import random
 
-from weiboCN import Fetcher, accountLimitedException, accountFreezedException, accountBannedException
+from weiboCN import Fetcher, accountLimitedException, accountFreezedException, accountBannedException, accountErrorException
 from followList import followListProcessing
 from fanList import fanListProcessing
 from content import contentProcessing
@@ -72,13 +72,21 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				page = todo[2]
 				isNormalUID = True
 				if page == 1:
-					[followCount, pageCount, followDict, dbFollowingList, dbInfoList] = followListProcessing(uid, page, fetcher)
-					if followCount > FOLLOW_COUNT_THRESHOLD:
-						logger.info('%d\'s followCount=%d, exceeds threshold' % (uid, followCount))
+					try:
+						[followCount, pageCount, followDict, dbFollowingList, dbInfoList] = followListProcessing(uid, page, fetcher)
+						if followCount > FOLLOW_COUNT_THRESHOLD:
+							logger.info('%d\'s followCount=%d, exceeds threshold' % (uid, followCount))
+							isNormalUID = False
+						else:
+							for p in xrange(2, pageCount+1):
+								todoQueue.put([cmd, uid, p])
+					except accountErrorException:
 						isNormalUID = False
-					else:
-						for p in xrange(2, pageCount+1):
-							todoQueue.put([cmd, uid, p])
+						fanDict = {}
+						dbFollowingList = []
+						dbInfoList = []
+						logger.error("Account %s Error & cannot access" % account['user'])
+
 				else:
 					[followDict, dbFollowingList, dbInfoList] = followListProcessing(uid, page, fetcher)
 				resultQueue.put([cmd, followDict, isNormalUID, dbFollowingList, dbInfoList])
@@ -88,13 +96,21 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				page = todo[2]
 				isNormalUID = True
 				if page == 1:
-					[fanCount, pageCount, fanDict, dbFollowingList, dbInfoList] = fanListProcessing(uid, page, fetcher)
-					if fanCount > FAN_COUNT_THRESHOLD:
-						logger.info('%d\'s fanCount=%d, exceeds threshold' % (uid, fanCount))
+					try:
+						[fanCount, pageCount, fanDict, dbFollowingList, dbInfoList] = fanListProcessing(uid, page, fetcher)
+						if fanCount > FAN_COUNT_THRESHOLD:
+							logger.info('%d\'s fanCount=%d, exceeds threshold' % (uid, fanCount))
+							isNormalUID = False
+						else:
+							for p in xrange(2, pageCount+1):
+								todoQueue.put([cmd, uid, p])
+					except accountErrorException:
 						isNormalUID = False
-					else:
-						for p in xrange(2, pageCount+1):
-							todoQueue.put([cmd, uid, p])
+						fanDict = {}
+						dbFollowingList = []
+						dbInfoList = []
+						logger.error("Account %s Error & cannot access" % account['user'])
+
 				else:
 					[fanDict, dbFollowingList, dbInfoList] = fanListProcessing(uid, page, fetcher)
 				resultQueue.put([cmd, fanDict, isNormalUID, dbFollowingList, dbInfoList])
@@ -157,10 +173,12 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 			todoQueue.put(todo)
 			switchAccountTimer = -1
 			logger.error("Account %s Freezed" % account['user'])
+			sleep(1)
 
 		except Exception, e:
 			todoQueue.put(todo)
-			logger.error("Exception: %r" % e)
+			logger.error("Exception: %r when doing %r" % (e, todo))
+			sleep(5)
 		finally:
 			if todo != None:
 				todoQueue.task_done()

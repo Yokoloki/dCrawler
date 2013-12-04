@@ -10,7 +10,7 @@ from operator import itemgetter
 from rpyc.utils.server import ThreadedServer
 from rpyc.utils.registry import TCPRegistryClient
 from DBUtils.PersistentDB import PersistentDB
-from time import sleep, time
+from time import sleep, time, localtime, strftime
 from subworker import subworkerProcessing
 from copy import deepcopy
 
@@ -71,7 +71,7 @@ class CrawlerService(rpyc.Service):
 			finished = True
 			frList = []
 			t = 0
-			SQL1 = "INSERT IGNORE INTO `crawledUID` (`uid`) VALUES (\'%d\')"
+			SQL1 = "INSERT INTO `crawledUID` (`uid`, `lastUpdate`) VALUES (\'%d\', \'%s\') ON DUPLICATE KEY UPDATE `lastUpdate`=values(`lastUpdate`)"
 			SQL2 = "INSERT IGNORE INTO `cpUID` (`uid`) VALUES (\'%d\')"
 			#Start the working loop
 			while pThread.isAlive():
@@ -85,7 +85,7 @@ class CrawlerService(rpyc.Service):
 					frList = self.crawl(job)
 					finished = True
 					#Update DB when finish
-					self.dbCur.execute(SQL1 % job)
+					self.dbCur.execute(SQL1 % (job, strftime("%Y-%m-%d %H:%M:%S", localtime())))
 					if frList == None:
 						self.dbCur.execute(SQL2 % job)
 					self.dbConn.commit()
@@ -297,7 +297,7 @@ class CrawlerService(rpyc.Service):
 			self.logger.info('%d names to resolve for comment' % len(staticsDict))
 			for name, lists in unresolvedDict.iteritems():
 				self.todoQueue.put(['resolveComment', name, lists])
-			self.todoQueue.join_with_timeout(JOIN_TIMEOUT_PERROUNT)
+			self.todoQueue.join_with_timeout(JOIN_TIMEOUT_PERROUNT*2)
 			nameDict = {}
 			dbCommentingList = []
 			dbCommentReplyList = [] 
