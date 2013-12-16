@@ -248,7 +248,7 @@ class Scheduler:
 		relatedUID = []
 		reInit = False
 		#setupWorkersNodes & let them block in todoQueue.get()
-		while toexpandList:
+		while toexpandList or currJob:
 			tdbConn = MySQLdb.connect(host=self.dbConfig['host'], user=self.dbConfig['user'], passwd=self.dbConfig['passwd'], db=self.dbConfig['name'], charset='utf8')
 			tdbCur = self.dbConn.cursor()
 			while not self.doneQueue.empty():
@@ -278,6 +278,9 @@ class Scheduler:
 						self.logger.error('todoQueue join timeout')
 						continue
 					self.crawledSet.add(currJob[0])
+				elif not toexpandList:
+					self.logger.info('All expand jobs finished')
+					break
 				else:
 					currJob = toexpandList.pop()
 				self.logger.info('Start to expand %d' % currJob[0])

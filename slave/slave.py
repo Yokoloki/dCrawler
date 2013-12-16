@@ -329,7 +329,7 @@ class CrawlerService(rpyc.Service):
 			self.dbCur.executemany(SQL, dbCommentReplyList)
 			SQL = "INSERT IGNORE INTO `commentAT` (`cid`, `uid`) VALUES (%s, %s)"
 			self.dbCur.executemany(SQL, dbCommentATList)
-			SQL = "INSERT IGNORE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%s, %s, %s)"
+			SQL = "INSERT IGNORE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE `name`=values(`name`), `imgUrl`=values(`imgUrl`)"
 			self.dbCur.executemany(SQL, dbUserInfo)
 
 			self.dbConn.commit()

@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-import urllib2
-import urllib
-import cookielib
+import urllib2, urllib, httplib, cookielib, functools
 import logging
 import datetime
 import lxml.html as HTML
@@ -9,11 +7,20 @@ from lxml.etree import XMLSyntaxError
 from time import sleep
 from bs4 import BeautifulSoup
 
+class BoundHTTPHandler(urllib2.HTTPHandler):
+    def __init__(self, source_address=None):
+        urllib2.HTTPHandler.__init__(self)
+        self.http_class = functools.partial(httplib.HTTPConnection, source_address=source_address)
+    def http_open(self, req):
+        return self.do_open(self.http_class, req)
+
 class Fetcher(object):
     def __init__(self):
         self.logger = logging.getLogger('Fetcher')
         self.cj = cookielib.LWPCookieJar()
         self.cookie_processor = urllib2.HTTPCookieProcessor(self.cj)
+        #self.handler = BoundHTTPHandler(source_address='127.0.0.1')
+        #self.opener = urllib2.build_opener(self.cookie_processor, self.handler)
         self.opener = urllib2.build_opener(self.cookie_processor, urllib2.HTTPHandler)
         #Mozilla/5.0 (Linux; Android 4.0.4; Galaxy Nexus Build/IMM76B) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.133 Mobile Safari/535.19
         #Mozilla/5.0 (iPhone; U; CPU like Mac OS X; en) AppleWebKit/420+ (KHTML, like Gecko) Version/3.0 Mobile/1A543 Safari/419.3
