@@ -78,7 +78,7 @@ class CrawlerService(rpyc.Service):
 				try:
 					job = self.callback(self.id, job, finished, frList)
 					if job == None:
-						self.logger.error("Jobs are currently unavailable, try again in 2s")
+						self.logger.debug("Jobs are currently unavailable, try again in 2s")
 						sleep(2)
 						continue
 					job = deepcopy(job)

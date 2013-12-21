@@ -178,7 +178,8 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 		except Exception, e:
 			todoQueue.put(todo)
 			logger.error("Exception: %r when doing %r" % (e, todo))
-			sleep(5)
+			sleep(60)
+			
 		finally:
 			if todo != None:
 				todoQueue.task_done()
