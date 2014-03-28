@@ -106,6 +106,25 @@ def contentProcessing(uid, page, frDict, fetcher):
 		if page == 1 \
 		else [midListWithPraise, midListWithComment, unresolvedATDict, staticsDict, dbPostingList, dbWeiboInfoList, dbWeiboAtList]
 
+
+def contentUpdating(uid, page, frDict, fetcher):
+	url = 'http://weibo.cn/%d?page=%d' % (uid, page)
+	soup = fetcher.fetch(url)
+	if page == 1:
+		pInfo = soup.find(attrs={"class": "pa", "id": "pagelist"})
+		pageCount = getPageCount(pInfo)
+	rawInfo = soup.findAll(attrs={"class":"c","id":True})
+	repostMid = []
+	for info in rawInfo:
+		mid = info['id'][2:]
+		divs = info.findAll('div')
+		isRepost = len(divs) > 2
+		if isRepost:
+			repostMid.append(mid)
+	return [pageCount, repostMid] \
+		if page == 1 \
+		else repostMid
+
 def getPageCount(pInfo):
 	if not pInfo:
 		return 1

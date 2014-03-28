@@ -8,7 +8,7 @@ from random import random
 from weiboCN import Fetcher, accountLimitedException, accountFreezedException, accountBannedException, accountErrorException
 from followList import followListProcessing
 from fanList import fanListProcessing
-from content import contentProcessing
+from content import contentProcessing, contentUpdating
 from praise import praiseProcessing
 from comment import commentProcessing
 from resolve import weiboATResolving, commentResolving
@@ -126,6 +126,18 @@ def subworkerProcessing(tid, persistDB, todoQueue, resultQueue, assignedAccounts
 				else:
 					[midListWithPraise, midListWithComment, unresolvedATDict, staticsDict, dbPostingList, dbWeiboInfoList, dbWeiboAtList] = contentProcessing(uid, page, frDict, fetcher)
 				resultQueue.put([cmd, midListWithPraise, midListWithComment, unresolvedATDict, staticsDict, dbPostingList, dbWeiboInfoList, dbWeiboAtList])
+			
+			elif cmd == "ucontent":
+				uid = todo[1]
+				page = todo[2]
+				frDict = todo[3]
+				if page == 1:
+					[pageCount, repostWeibo] = contentUpdating(uid, page, frDict, fetcher)
+					for p in xrange(2, min(pageCount, MAX_WEIBO_PAGE)+1):
+						todoQueue.put([cmd, uid, p, frDict])
+				else:
+					repostWeibo = contentUpdating(uid, page, frDict, fetcher)
+				resultQueue.put([cmd, repostWeibo])
 
 			elif cmd == "resolveWeibo":
 				name = todo[1]

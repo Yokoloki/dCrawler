@@ -106,15 +106,23 @@ class CrawlerService(rpyc.Service):
 			frDict = self.crawlFrList(uid)
 			if frDict == None:
 				return None
+			#self.updateContent(uid, frDict)
 			[midListWithPraise, midListWithComment, unresolvedATDict, staticsDict] = self.crawlContent(uid, frDict)
 			#Resolve @Names, update the staticsDict, and return the name->uid dict
+			###
 			nameDict = self.resolveWeiboNames(unresolvedATDict, staticsDict)
+			###
 			nameDict = self.crawlPraise(midListWithPraise, nameDict)
+			####
 			unresolvedDict = self.crawlComment(midListWithComment, frDict, nameDict, staticsDict)
+			####
 			#Resolve names appears in comments, update the staticsDict and return the name->uid dict
+			####
 			self.resolveCommentNames(unresolvedDict, staticsDict)
-			frList = self.getPotentialFrs(staticsDict)
-			return frList
+			####
+			#frList = self.getPotentialFrs(staticsDict)
+			#return frList
+			return []
 
 		def crawlFrList(self, uid):
 			self.logger.info('crawling FrList of %d' % uid)
@@ -146,7 +154,7 @@ class CrawlerService(rpyc.Service):
 
 			SQL = "INSERT IGNORE INTO `following` (`followerID`, `followedID`) VALUES (%s, %s)"
 			self.dbCur.executemany(SQL, dbFollowingList)
-			SQL = "INSERT IGNORE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%s, %s, %s)"
+			SQL = "REPLACE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%s, %s, %s)"
 			self.dbCur.executemany(SQL, dbInfoList)
 			self.dbConn.commit()
 			
@@ -192,13 +200,27 @@ class CrawlerService(rpyc.Service):
 
 			SQL = "INSERT IGNORE INTO `posting` (`uid`, `mid`) VALUES (%s, %s)"
 			self.dbCur.executemany(SQL, dbPostingList)
-			SQL = "INSERT IGNORE INTO `weiboInfo` (`mid`, `time`, `praiseCount`, `repostCount`, `commentCount`, `content`, `longitude`, `latitude`, `isRepost`, `originMid`) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+			SQL = "REPLACE INTO `weiboInfo` (`mid`, `time`, `praiseCount`, `repostCount`, `commentCount`, `content`, `longitude`, `latitude`, `isRepost`, `originMid`) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 			self.dbCur.executemany(SQL, dbWeiboInfoList)
-			SQL = "INSERT IGNORE INTO `weiboAT` (`mid`, `uid`) VALUES (%s, %s)"
+			SQL = "REPLACE INTO `weiboAT` (`mid`, `uid`) VALUES (%s, %s)"
 			self.dbCur.executemany(SQL, dbWeiboAtList)
 			self.dbConn.commit()
 
 			return [midListWithPraise, midListWithComment, unresolvedATDict, staticsDict]
+
+		def updateContent(self, uid, frDict):
+			self.logger.info('updating weibo content of %d' % uid)
+			self.todoQueue.put(['ucontent', uid, 1, frDict])
+			self.todoQueue.join_with_timeout(JOIN_TIMEOUT_PERROUNT)
+			dbrepostWeibo = []
+			while not self.resultQueue.empty():
+				result = self.resultQueue.get_nowait()
+				dbrepostWeibo += result[1]
+			dbrepostWeibo = list(set(dbrepostWeibo))
+			SQL = "INSERT INTO `weiboInfo` (`mid`) VALUES (%s) ON DUPLICATE KEY UPDATE `isRepost`=1"
+			self.dbCur.executemany(SQL, dbrepostWeibo)
+			self.dbConn.commit()
+			return
 
 		def resolveWeiboNames(self, unresolvedATDict, staticsDict):
 			self.logger.info('%d names to resolve for weibo AT' % len(staticsDict))
@@ -224,7 +246,7 @@ class CrawlerService(rpyc.Service):
 			dbUserInfo = list(set(dbUserInfo))
 			SQL = "INSERT IGNORE INTO `weiboAT` (`mid`, `uid`) VALUES (%s, %s)"
 			self.dbCur.executemany(SQL, dbWeiboAtList)
-			SQL = "INSERT IGNORE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%s, %s, %s)"
+			SQL = "REPLACE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%s, %s, %s)"
 			self.dbCur.executemany(SQL, dbUserInfo)
 			self.dbConn.commit()
 			return nameDict
@@ -286,7 +308,7 @@ class CrawlerService(rpyc.Service):
 			self.dbCur.executemany(SQL, dbCommentOfList)
 			SQL = "INSERT IGNORE INTO `commenting` (`uid`, `cid`) VALUES (%s, %s)"
 			self.dbCur.executemany(SQL, dbCommentingList)
-			SQL = "INSERT IGNORE INTO `commentInfo` (`cid`, `time`, `content`, `isReply`, `replyTo`) VALUES (%s, %s, %s, %s, %s)"
+			SQL = "REPLACE INTO `commentInfo` (`cid`, `time`, `content`, `isReply`, `replyTo`) VALUES (%s, %s, %s, %s, %s)"
 			self.dbCur.executemany(SQL, dbCommentList)
 			SQL = "INSERT IGNORE INTO `commentAT` (`cid`, `uid`) VALUES (%s, %s)"
 			self.dbCur.executemany(SQL, dbCommentATList)
@@ -329,7 +351,7 @@ class CrawlerService(rpyc.Service):
 			self.dbCur.executemany(SQL, dbCommentReplyList)
 			SQL = "INSERT IGNORE INTO `commentAT` (`cid`, `uid`) VALUES (%s, %s)"
 			self.dbCur.executemany(SQL, dbCommentATList)
-			SQL = "INSERT IGNORE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE `name`=values(`name`), `imgUrl`=values(`imgUrl`)"
+			SQL = "REPLACE INTO `userInfo` (`uid`, `name`, `imgUrl`) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE `name`=values(`name`), `imgUrl`=values(`imgUrl`)"
 			self.dbCur.executemany(SQL, dbUserInfo)
 
 			self.dbConn.commit()

@@ -187,6 +187,51 @@ class Scheduler:
 				self.doneQueue.qsize(), eTime-sTime,
 				(self.doneQueue.qsize()/(eTime-sTime))))
 			self.logger.info("%d users are crawled since %s" % (self.numCrawled, stTime))
+	
+	def selectiveWork(self):
+		#Retrive info of last execution from DB
+		stTime = strftime("%Y-%m-%d %H:%M:%S", localtime())
+		self.logger.info('Retrieving information from database...')
+		SQL = "SELECT `uid` FROM `prioruid` WHERE 1"
+		self.dbCur.execute(SQL)
+		resultSet = self.dbCur.fetchall()
+		delSQL = "DELETE FROM `prioruid` WHERE `uid`=%s"
+		tocrawlList = [result[0] for result in resultSet]
+		canceled = False
+		reInit = False
+		#setupWorkersNodes & let them block in todoQueue.get()
+		while not canceled:
+			todel = []
+			while not self.doneQueue.empty():
+				doneJobInfo = self.doneQueue.get_nowait()
+				if doneJobInfo['uid'] in tocrawlList:
+					tocrawlList.remove(doneJobInfo['uid'])
+					todel.append(int(doneJobInfo['uid']))
+			if len(todel) > 0:
+				self.dbCur.executemany(delSQL, todel)
+				self.dbConn.commit()
+			if reInit:
+				self.logger.info('Reinit slave nodes')
+				self.initSlaveNodes()
+			for i in xrange(self.MAXNUM_TOCRAWL_EACHROUND):
+				self.todoQueue.put(tocrawlList[i])
+			self.logger.info("Uids to crawl: %r" % tocrawlList[:self.MAXNUM_TOCRAWL_EACHROUND])
+			#Wait until this round of jobs done
+			sTime = time()
+			try:
+				self.todoQueue.join_with_timeout(self.JOIN_TIMEOUT_PERROUNT)
+			except KeyboardInterrupt:
+				canceled = True
+			except JoinTimeout:
+				reInit = True
+				self.logger.error('todoQueue join timeout')
+			eTime = time()
+			self.numCrawled += self.doneQueue.qsize()
+			self.logger.info("%d users crawled in %fs, %f/s" % (
+				self.doneQueue.qsize(), eTime-sTime,
+				(self.doneQueue.qsize()/(eTime-sTime))))
+			self.logger.info("%d users are crawled since %s" % (self.numCrawled, stTime))
+
 
 	def workForUpdate(self):
 		#Retrive info of last execution from DB
@@ -357,5 +402,5 @@ class Scheduler:
 if __name__ == "__main__":
 	with Scheduler() as ins:
 		#ins.work()
-		ins.workForCompleteRelationship()
-		ins.workForUpdate()
+		#ins.workForCompleteRelationship()
+		ins.selectiveWork()
